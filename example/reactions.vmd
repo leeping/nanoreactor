@@ -1,0 +1,319 @@
+#==================================================#
+#    script to render frame-dependent coloring     #
+#    to show molecules, charges, and spin pops.    #
+#     Lee-Ping Wang and Alexey Titov (06-2013)     #
+#==================================================#
+
+#==================================================#
+#           Global settings for display            #
+#==================================================#
+molecule autobonds off
+axes location Off
+display rendermode GLSL
+# color change rgb 24 0.41 0.72 1.00
+color change rgb 24 0.60 0.75 1.00
+display backgroundgradient on
+color Display BackgroundBot 24
+color Display BackgroundTop 8
+# display projection Orthographic
+display projection Perspective
+display height 4.0
+display depthcue off
+display nearclip set 0.010000
+# Ghost is completely invisible
+material change opacity Ghost 0.000000
+# HardPlastic is "matte" for normal elements, 
+# designed to clearly show the atoms without
+# distracting the viewer.
+material change ambient HardPlastic 0.3
+material change diffuse HardPlastic 0.3
+material change specular HardPlastic 0.2
+material change shininess HardPlastic 0.2
+material change opacity HardPlastic 1.00
+material change outline HardPlastic 0.00
+material change outlinewidth HardPlastic 0.00
+# Transparent is a bright sphere designed to
+# highlight reaction products without obscuring
+# the element inside. 
+material change ambient Transparent 0.00
+material change diffuse Transparent 0.80
+material change specular Transparent 1.00
+material change shininess Transparent 0.60
+material change opacity Transparent 0.40
+material change outline Transparent 2.00
+material change outlinewidth Transparent 0.40
+material change transmode Transparent 1.00
+# EdgyShiny is for displaying arrows.
+material change diffuse EdgyShiny 0.90
+material change specular EdgyShiny 0.96
+material change shininess EdgyShiny 1.00
+material change outline EdgyShiny 1.93
+material change outlinewidth EdgyShiny 0.65
+
+puts "Usage: Either launch VMD with 'vmd -e test.vmd -args my_xyz_file.xyz'"
+puts "       or open VMD and run 'play my_xyz_file.xyz'"
+# Load the new molecule
+set xyzname [lindex $argv 0]
+mol new $xyzname type xyz waitfor all autobonds off
+# Delete default rep
+mol delrep 0 top
+animate goto 0
+
+proc vmd_draw_vector {mol cnt vec {scale 1.0} {res 35} {radius 0.05}} {
+    set vecpt45 [vecscale [expr $scale *0.45] $vec]
+    set vechalf [vecscale [expr $scale *0.5] $vec]
+    set veczero [vecscale [expr $scale *0.0] $vec]
+    set vecfull [vecscale [expr $scale *1.0] $vec]
+    set cnt [vecsub $cnt $vecpt45]
+    # Make sure arrowhead lengths don't go below a preset threshold.
+    set arrowhead 0.5
+    set hscale [expr -1.0*[min 0.0 [expr -1.0*[expr [veclength $vecfull] - $arrowhead]/[expr [veclength $vecfull]]]]]
+    set radius [min [expr 0.05 * [veclength $vec]] $radius]
+    return [list \
+      [graphics $mol cylinder [vecsub $cnt $veczero] \
+        [vecadd $cnt [vecscale $hscale $vecfull]] \
+        radius $radius resolution $res filled yes] \
+      [graphics $mol cone [vecadd $cnt [vecscale $hscale $vecfull]] \
+        [vecadd $cnt $vecfull] radius [expr $radius * 2.5] \
+        resolution $res]]
+}
+
+proc vmd_draw_circle {mol cnt ex ey {radius 1.0} {res 36} {thickness 5}} {
+    # Draw a circle, given the center, two unit vectors, radius, resolution and thickness.
+    set pi 3.1415926535897931
+    for {set i 0} {$i < $res} {incr i} {
+        set q0 [expr 2 * $pi * ($i-0.1) / $res]
+        set r0 [vecadd [vecadd $cnt [vecscale $ex [expr $radius * cos($q0)]]] [vecscale $ey [expr $radius * sin($q0)]]] 
+        set q1 [expr 2 * $pi * ($i+1.1) / $res]
+        set r1 [vecadd [vecadd $cnt [vecscale $ex [expr $radius * cos($q1)]]] [vecscale $ey [expr $radius * sin($q1)]]] 
+        graphics $mol line $r0 $r1 width $thickness
+    }
+}
+
+#==================================================#
+#             define re-draw function              #
+#==================================================#
+proc do_coloring {args} {
+    # coldata has the colors for all particles
+    global coldata natoms molinit allatom bondata chgdata spndata
+    set molid 0
+    # get the current frame number
+    set frame [molinfo $molid get frame]
+    if {[info exists coldata($frame)]} then {
+        set col [split [lindex $coldata($frame) 0] " "]
+        #set bond [split [lindex $bondata($frame) 0] " "]
+	set bond [lindex $bondata($frame)]
+    
+        if {$molinit == 0} then {
+            set molinit 1
+            for {set i 0} {$i < $natoms} {incr i} {
+                mol representation VDW 0.6 72
+                set beadcol [lindex $col $i]
+                mol color ColorID $beadcol
+                set mysel "index $i"
+                mol selection $mysel
+                set mat "Opaque"
+                if {$beadcol == 8} {
+                    set mat "Ghost"    
+                } else {
+                    set mat "Transparent"    
+		}
+                mol material $mat
+                mol addrep top
+            }
+	    mol selection "all"
+	    mol color Name
+	    incr i
+	    mol rep VDW 0.58000 72.000000
+	    mol material HardPlastic
+	    mol addrep top
+	    mol modmaterial $i $molid HardPlastic
+	    incr i
+	    mol rep Bonds 0.15 53.0
+	    mol material HardPlastic
+	    mol addrep top
+	    mol modmaterial $i $molid HardPlastic
+        } else {
+            for {set i 0} {$i < $natoms} {incr i} {
+                set beadcol [lindex $col $i]
+                set oldcolor [lindex [lindex [molinfo top get "{color $i}"] 0] 1]
+		# Only update the color if old and new are different (this speeds things up a lot)
+		if {$beadcol != $oldcolor} {
+                    mol modcolor $i $molid ColorID $beadcol
+                    if {$beadcol == 8} {
+                        set mat "Ghost"    
+                    } else {
+                        set mat "Transparent"    
+		    }
+                    mol modmaterial $i $molid $mat
+                }
+            }
+        }
+	$allatom setbonds [concat {*}$bond]
+    }
+    graphics top delete all
+    graphics top color 32
+    # mol selection "all"
+    graphics top material "EdgyShiny"
+    # Get camera vectors; these are useful for drawing things that are invariant to camera rotations.
+    # Obtain a unit vector pointing in the +x direction from the user's perspective.
+    set camx [lindex [lindex [molinfo top get view_matrix] 0] 0]
+    lappend ex [ lindex $camx 0 ]
+    lappend ex [ lindex $camx 1 ]
+    lappend ex [ lindex $camx 2 ]
+    set ex [ vecscale $ex [ expr 1.0 / [veclength $ex]]]
+    # Obtain a unit vector pointing in the +y direction from the user's perspective.
+    set camy [lindex [lindex [molinfo top get view_matrix] 0] 1]
+    lappend ey [ lindex $camy 0 ]
+    lappend ey [ lindex $camy 1 ]
+    lappend ey [ lindex $camy 2 ]
+    set ey [ vecscale $ey [ expr 1.0 / [veclength $ey]]]
+    # Obtain a unit vector pointing in the +z direction from the user's perspective.
+    set camz [lindex [lindex [molinfo top get view_matrix] 0] 2]
+    lappend ez [ lindex $camz 0 ]
+    lappend ez [ lindex $camz 1 ]
+    lappend ez [ lindex $camz 2 ]
+    set ez [ vecscale $ez [ expr 1.0 / [veclength $ez]]]
+    # Scaling factor for how far away the camera is.
+    set radscale [lindex [lindex [lindex [molinfo top get scale_matrix] 0] 0] 0]
+    # puts $radscale
+    # Draw the spin vectors.
+    if {[info exists spndata($frame)]} then {
+        set spn [split [lindex $spndata($frame) 0] " "]
+        foreach {i s} $spn {
+            set sel [atomselect top "index $i"]
+            set x [$sel get x]
+            set y [$sel get y]
+            set z [$sel get z]
+            vmd_draw_vector top [list $x $y $z] [vecscale $ey 3.0] $s 25 0.15
+        }
+    }
+    graphics top color 16
+    # Draw the charge labels.
+    if {[info exists chgdata($frame)]} then {
+        # Input File Format: 100 101 102! 103, -0.25; 
+        # (Space-delimited atom indices with an exclamation point, float;)
+        set chg [split [lindex $chgdata($frame) 0] ";"]
+        foreach m $chg {
+            if {[string length $m] > 0} {
+	        set iiq [split $m ","]
+                set ii [string trim [lindex $iiq 0]]
+                set q [string trim [lindex $iiq 1]]
+                # Find the maximum extents of the molecule in the x, y, and z directions.
+                set exdot ""
+                set eydot ""
+                set ezdot ""
+                foreach i [split $ii " "] {
+                    set i [string map {"!" ""} $i]
+                    set sel [atomselect top "index $i"]
+                    set x [$sel get x]
+                    set y [$sel get y]
+                    set z [$sel get z]
+                    lappend exdot [vecdot [list $x $y $z] $ex] 
+                    lappend eydot [vecdot [list $x $y $z] $ey] 
+                    lappend ezdot [vecdot [list $x $y $z] $ez] 
+                }
+                set exmax [expr [lindex [lsort -real $exdot] end] + 0.0]
+                set eymax [expr [lindex [lsort -real $eydot] end] + 0.0]
+                set ezmax [expr [lindex [lsort -real $ezdot] end] + 1.0]
+		# Draw the charge label in the top right corner and closer to the viewer.
+                set cen [vecscale $ex $exmax]
+                set cen [vecadd $cen [vecscale $ey $eymax]]
+                set cen [vecadd $cen [vecscale $ez $ezmax]]
+                set qq [format "%+.1f" $q]
+                set qqq [format "%.1f" [expr abs($q)]]
+                if {$q < 0} then {
+                    set qqs "-"
+                } else {
+                    set qqs "+"
+                }
+                set ssaq [expr 0.75 * sqrt(sqrt(abs($q)))]
+                set rad [expr 0.135 * $ssaq / $radscale]
+		# Draw black text and a colored circle.
+                graphics top color 16
+                graphics top text [vecadd $cen [vecscale $ex [expr $rad*0.2]]] $qqs size [expr $ssaq*1.2] thickness [expr $ssaq*4]
+                graphics top text [vecadd $cen [vecscale $ex [expr $rad*0.7]]] $qqq size [expr $ssaq*1.2] thickness [expr $ssaq*4]
+		if {$q < 0} then {
+                    graphics top color 23
+                } else {
+                    graphics top color 1
+                }
+                vmd_draw_circle top [vecadd [vecadd $cen [vecscale $ex [expr $rad*0.85]]] [vecscale $ey [expr $rad*0.05]]] $ex $ey $rad 24 [expr round($ssaq*3)]
+            }
+        }
+    }
+}
+
+
+set allatom [atomselect top all]
+set natoms [$allatom num]
+set warns 0
+#==================================================#
+#           Read in the coloring data              #
+#==================================================#
+set filename "color.dat"
+set fp [open $filename r]
+set n [molinfo 0 get numframes]
+set nn 0
+for {set i 0} {$i < $n} {incr i} {
+    set coldata_i [list [gets $fp]]
+    set words [split $coldata_i " "]
+    set numwords [llength $words]
+    if {$numwords != $natoms} {
+       set warns 1
+    } else {
+       set nn $i
+       set coldata($i) $coldata_i
+    }   
+}
+close $fp
+set n $nn
+
+#==================================================#
+#             Read in the bond data                #
+#==================================================#
+set filename "bonds.dat"
+set fp [open $filename r]
+for {set i 0} {$i < $n} {incr i} {
+    set bondata($i) [list [gets $fp]]
+}
+close $fp
+
+#==================================================#
+#            Read in the charge data               #
+#==================================================#
+set filename "charge.dat"
+if {[file exists $filename]} {
+    set fp [open $filename r]
+    for {set i 0} {$i < $n} {incr i} {
+        set chgdata($i) [list [gets $fp]]
+    }
+}
+close $fp
+
+#==================================================#
+#             Read in the spin data                #
+#==================================================#
+set filename "spin.dat"
+if {[file exists $filename]} {
+    set fp [open $filename r]
+    for {set i 0} {$i < $n} {incr i} {
+        set spndata($i) [list [gets $fp]]
+    }
+}
+close $fp
+
+if { $warns == 1 } {
+    puts [format "Warning: Only the first %i frames contain bond/color data!" [expr {$nn}]]
+}
+
+#check if the molecule has been initialized with reps
+set molinit 0
+
+# Note: To stop the tracing, type the same command but use "vdelete" instead of "variable"
+trace variable vmd_logfile w do_coloring
+trace variable vmd_frame(0) w do_coloring
+# it was vmd_frame(0)
+
+animate goto 0
+animate delete beg [expr $n - 1] end $n top

@@ -1,0 +1,21 @@
+Build the virtual environment by typing (needs virtualenv installed, this is true on fire-4-0):
+
+    virtualenv env
+
+Switch to the virtual environment:
+
+    source env/bin/activate
+
+Then, install all requirements by typing:
+
+    pip install -r requirements.txt
+
+Then you should be able to install the nanoreactor within the environment by typing
+
+    python setup.py install
+
+If you install more packages, please update the requirements.txt file by typing:
+
+    pip freeze > requirements.txt
+
+Then edit the requirements.txt file to remove the nanoreactor package (which is not installed via pip)

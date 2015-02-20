@@ -1,0 +1,5 @@
+recursive-include example.md *
+recursive-include example *
+recursive-include src *
+recursive-include bin *
+recursive-include bin.fire *

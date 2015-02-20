@@ -1,0 +1,37 @@
+coordinates start.xyz
+charge      0
+run         md
+method      uhf
+basis       3-21g
+dispersion  yes
+thermostat  langevin
+tinit       2000
+t0          2000
+lnvtime     300
+
+mdbc                 spherical
+md_r1                     14.0
+md_k1                      1.0
+md_r2                      9.0
+md_k2                      0.5
+mdbc_hydrogen              yes
+mdbc_mass_scaled           yes
+mdbc_t1                   3000
+mdbc_t2                   1000
+
+timings        yes
+nstep          2000000
+gpus           8
+maxit          50
+scf            diis+a
+#scfintegrator  reset
+timestep       0.5
+precision      double
+restartmdfreq  10
+#threall        1e-14
+
+levelshift      yes
+levelshiftvala  1.6
+levelshiftvalb  0.1
+
+end

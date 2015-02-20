@@ -1,0 +1,1 @@
+vmd -e reactions.vmd -args coors.xyz 
