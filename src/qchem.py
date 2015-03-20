@@ -542,7 +542,8 @@ class QChem(object):
         # Command for serial jobs
         qc1cmd = qccmd.split()[0]
         # Command for MPI jobs
-        qcmpi = qccmd.replace('-nt', '-np')
+        qcmpi = "qchem42"
+        #qcmpi = qccmd.replace('-nt', '-np')
         # I believe this saves more scratch files from Q-Chem.
         if self.qcsave:
             qccmd += ' -save'

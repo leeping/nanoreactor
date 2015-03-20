@@ -7,11 +7,14 @@ from collections import OrderedDict
 from nanoreactor.output import logger
 # Utility functions and classes used to be a part of this script
 from nanoreactor.rxndb import create_work_queue, parse_input_files, get_trajectory_home, Trajectory, wq_reactor
+# New imports so process_spins will work
+from nanoreactor.molecule import Molecule, extract_int, Elements
+import re
 
-#===========================================#
-#| Nanoreactor refinement script version 2 |#
-#|        Author: Lee-Ping Wang            |#
-#===========================================#
+#==================================================#
+#|    Nanoreactor refinement script version 2     |#
+#| Authors: Lee-Ping Wang, Leah Isseroff Bendavid |#
+#==================================================#
 
 def parse_command():
     # Parse user input - run at the beginning.
@@ -43,6 +46,48 @@ def parse_command():
     args, sys.argv = parser.parse_known_args(sys.argv[1:])
     return args
 
+def process_spins(trajectory_fnms):
+    newtrajectory_fnms=[]
+    logger.info("Pre-processing spins of trajectories")
+    for i in range(len(trajectory_fnms)):
+        M = Molecule(trajectory_fnms[i])
+
+        # Read in the charge and spin on the whole system.
+        srch  = lambda s : np.array([float(re.search('(?<=%s )[-+]?[0-9]*\.?[0-9]*([eEdD][-+]?[0-9]+)?' % s, c).group(0)) for c in M.comms if all([k in c for k in 'charge', 'sz'])])
+        Chgs  = srch('charge') # An array of the net charge.
+        SpnZs = srch('sz')    # An array of the net Z-spin.
+
+        chg, chgpass = extract_int(Chgs, 0.3, 1.0, label="charge", verbose=False)
+        spn, spnpass = extract_int(abs(SpnZs), 0.3, 1.0, label="spin-z", verbose=False)
+
+        nproton = sum([Elements.index(j) for j in M.elem])
+        nelectron = nproton + chg
+        # Calculate the new spins if spins are inconsistent. Extracts all spin values from trajectory file, and uses
+        # the absolute values of all spin/charge-appropriate rounded spin values.
+        if not spnpass:
+            logger.info("Generating new spins for "+trajectory_fnms[i])
+            newspins =[]
+            for spinnew in SpnZs:
+                spinnew = int(round(spinnew))
+                if ((nelectron-spinnew)/2)*2 != (nelectron-spinnew):
+                    continue
+                if abs(spinnew) in newspins:
+                    continue
+                else:
+                    newspins.append(abs(spinnew))
+            # Write new trajectory files for new spins and add to trajectory list
+            for spinrpl in newspins:
+                for j in range(len(M.comms)):
+                    M.comms[j] = re.sub('(?<=%s )[-+]?[0-9]*\.?[0-9]*([eEdD][-+]?[0-9]+)?' % "sz", str(float(spinrpl)), M.comms[j])
+                newfilename = os.path.splitext(trajectory_fnms[i])[0] + "_SZ" + str(spinrpl) + os.path.splitext(trajectory_fnms[i])[1]
+                M.write(newfilename)
+                newtrajectory_fnms.append(newfilename)
+            # Move original trajectory file to *.parent and exclude it from the trajectory list
+            os.rename(trajectory_fnms[i], trajectory_fnms[i]+".parent")
+        else:
+            newtrajectory_fnms.append(trajectory_fnms[i])
+    return newtrajectory_fnms
+
 def main():
     # global WQ
     # Get command line arguments.
@@ -58,6 +103,8 @@ def main():
         # sys.exit()
     # Obtain a list of dynamics trajectory files.
     trajectory_fnms = parse_input_files(args.input)
+    #Pre-process files to modify spins if inappropriate
+    trajectory_fnms = process_spins(trajectory_fnms)
     # We have the options of doing the smallest trajectories first.
     if args.small_first:
         order = list(np.argsort([int(open(fnm).next().split()[0]) for fnm in trajectory_fnms]))
