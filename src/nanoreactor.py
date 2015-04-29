@@ -10,6 +10,7 @@ import copy
 import ast
 from collections import OrderedDict, defaultdict, Counter
 from chemistry import Elements, Radii
+from copy import deepcopy
 from molecule import Molecule, format_xyz_coord, extract_int
 import contact
 import itertools
@@ -767,6 +768,8 @@ class Nanoreactor(Molecule):
         Slices = []        # A list of lists of Molecule objects to be saved to disk
         Firsts = []        # A list of lists of first frames
         Lasts  = []        # A list of lists of last frames
+        SliceIndices = []  # A list of atom indices corresponding to each saved trajectory
+        SliceFrames = []   # A list of frames corresponding to each saved trajectory
         BufferTime = 0
         for gid, ts in self.TimeSeries.items():
             I = self.Isomers[ts['iidx']]
@@ -892,14 +895,20 @@ class Nanoreactor(Molecule):
                                         Slices.append([Slice])
                                         Firsts.append([FrameSel[0]])
                                         Lasts.append([FrameSel[-1]])
+                                        SliceIndices.append([Reactant_Atoms])
+                                        SliceFrames.append([FrameSel])
                                     elif Overwrite >= 0:
                                         Slices[Overwrite] = [Slice]
                                         Firsts[Overwrite] = [FrameSel[0]]
                                         Lasts[Overwrite] = [FrameSel[-1]]
+                                        SliceIndices[Overwrite] = [Reactant_Atoms]
+                                        SliceFrames[Overwrite] = [FrameSel]
                                     elif Annotate >= 0:
                                         Slices[Annotate].append(Slice)
                                         Firsts[Annotate].append(FrameSel[0])
                                         Lasts[Annotate].append(FrameSel[-1])
+                                        SliceIndices[Annotate].append(Reactant_Atoms)
+                                        SliceFrames[Annotate].append(FrameSel)
                                     if self.printlvl >= 0: print "\rReaction found: formula %s atoms %s frames %i through %i" % (evector, commadash(Reactant_Atoms), FrameSel[0], FrameSel[-1])
                                     
                         if After > End:
@@ -1013,14 +1022,20 @@ class Nanoreactor(Molecule):
                                         Slices.append([Slice])
                                         Firsts.append([FrameSel[0]])
                                         Lasts.append([FrameSel[-1]])
+                                        SliceIndices.append([Reactant_Atoms])
+                                        SliceFrames.append([FrameSel])
                                     elif Overwrite >= 0:
                                         Slices[Overwrite] = [Slice]
                                         Firsts[Overwrite] = [FrameSel[0]]
                                         Lasts[Overwrite] = [FrameSel[-1]]
+                                        SliceIndices[Overwrite] = [Reactant_Atoms]
+                                        SliceFrames[Overwrite] = [FrameSel]
                                     elif Annotate >= 0:
                                         Slices[Annotate].append(Slice)
                                         Firsts[Annotate].append(FrameSel[0])
                                         Lasts[Annotate].append(FrameSel[-1])
+                                        SliceIndices[Annotate].append(Reactant_Atoms)
+                                        SliceFrames[Annotate].append(FrameSel)
                                     if self.printlvl >= 0: print "\rReaction found: formula %s atoms %s frames %i through %i" % (evector, commadash(Reactant_Atoms), FrameSel[0], FrameSel[-1])
         print
         RxnSrl = 0                                                    # Serial number of the reaction for writing to disk
@@ -1074,6 +1089,21 @@ class Nanoreactor(Molecule):
                     if InstSrl < 10:
                         if self.printlvl >= 0: print "\x1b[1;92mSaving\x1b[0m frames %i -> %i to %s" % (Firsts[RxnNum][Inst], Lasts[RxnNum][Inst], outfnm)
                         Slices[RxnNum][Inst].write(outfnm)
+                        # Build a molecule object containing the corresponding charges and spin
+                        SliceQSz = deepcopy(Slices[RxnNum][Inst])
+                        ThisIdx = SliceIndices[RxnNum][Inst]
+                        ThisFrm = SliceFrames[RxnNum][Inst]
+                        # Grab charges from the global trajectory
+                        ThisChg = [self.Charges[iframe][ThisIdx] for iframe in ThisFrm]
+                        ThisSpn = [self.Spins[iframe][ThisIdx] for iframe in ThisFrm]
+                        # Assign charges to positions (for convenience)
+                        for iframe in len(SliceQSz):
+                            for iatom in range(SliceQSz.na):
+                                SliceQSz.xyzs[iframe][iatom][0] = ThisChg[iframe][iatom]
+                                SliceQSz.xyzs[iframe][iatom][1] = ThisSpn[iframe][iatom]
+                                SliceQSz.xyzs[iframe][iatom][2] = 0.0
+                        # Write charges and spins to x and y coordinates in a duplicate .xyz file
+                        SliceQSz.write(outfnm.replace('.xyz','.qsz'))
                     elif self.printlvl >= 0: print "\x1b[1;93mNot Saving\x1b[0m frames %i -> %i (instance %i)" % (Firsts[RxnNum][Inst], Lasts[RxnNum][Inst], InstSrl)
                     InstSrl += 1
             if RxnSrl_ == RxnSrl: RxnSrl += 1
