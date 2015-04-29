@@ -251,7 +251,9 @@ done
 echo $cmd
 $cmd
 rm charge-spin.txt.bz2
+rm bond-orders.txt.bz2
 bzip2 charge-spin.txt
+bzip2 bond-orders.txt
 cd ..
 }}
 
@@ -312,7 +314,7 @@ echo $next_chunk > .chunk
 #|        Submit the next job         |#
 #======================================#
 if (( chunk < 200 )) ; then
-    qtcmd.py --auto --hold $JOB_ID --gpus {gpus} --gpucc "{gpucc}" {long}
+    qtcmd.py --auto --hold $JOB_ID --gpus {gpus} --gpucc "{gpucc}" --name "{jobname}" {long}
 fi
 #======================================#
 #|  Go into the temporary directory   |#

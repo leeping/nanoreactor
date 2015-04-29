@@ -1,5 +1,5 @@
 #Nanoreactor package
-#### Authors: Lee-Ping Wang, Robert McGibbon, Alexey Titov, Todd J. Martinez
+#### Authors: Lee-Ping Wang, Robert McGibbon, Leah Isseroff Bendavid, Alexey Titov, Todd J. Martinez
 
 This is a script and library to analyze reactive MD (nanoreactor)
 simulations.  It provides two main capabilities:
