@@ -1042,7 +1042,7 @@ class Nanoreactor(Molecule):
         haverxn = {}
         # Look for existing reaction.xyz so we can preserve existing reactions from previous runs.
         for fnm in os.listdir('.'):
-            if fnm.startswith('reaction_') and fnm.endswith('.xyz'):
+            if fnm.startswith('reaction_') and fnm.endswith('.xyz') and os.path.exists(fnm.replace('.xyz','.qsz')):
                 srl = int(os.path.splitext(fnm)[0].split("_")[1])
                 maxinst = 0
                 for fnm1 in os.listdir('.'):
@@ -1097,13 +1097,13 @@ class Nanoreactor(Molecule):
                         ThisChg = [self.Charges[iframe][ThisIdx] for iframe in ThisFrm]
                         ThisSpn = [self.Spins[iframe][ThisIdx] for iframe in ThisFrm]
                         # Assign charges to positions (for convenience)
-                        for iframe in len(SliceQSz):
+                        for iframe in range(len(SliceQSz)):
                             for iatom in range(SliceQSz.na):
                                 SliceQSz.xyzs[iframe][iatom][0] = ThisChg[iframe][iatom]
                                 SliceQSz.xyzs[iframe][iatom][1] = ThisSpn[iframe][iatom]
                                 SliceQSz.xyzs[iframe][iatom][2] = 0.0
                         # Write charges and spins to x and y coordinates in a duplicate .xyz file
-                        SliceQSz.write(outfnm.replace('.xyz','.qsz'))
+                        SliceQSz.write(outfnm.replace('.xyz','.qsz'),ftype='xyz')
                     elif self.printlvl >= 0: print "\x1b[1;93mNot Saving\x1b[0m frames %i -> %i (instance %i)" % (Firsts[RxnNum][Inst], Lasts[RxnNum][Inst], InstSrl)
                     InstSrl += 1
             if RxnSrl_ == RxnSrl: RxnSrl += 1
