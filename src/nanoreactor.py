@@ -1042,7 +1042,7 @@ class Nanoreactor(Molecule):
         haverxn = {}
         # Look for existing reaction.xyz so we can preserve existing reactions from previous runs.
         for fnm in os.listdir('.'):
-            if fnm.startswith('reaction_') and fnm.endswith('.xyz') and os.path.exists(fnm.replace('.xyz','.qsz')):
+            if fnm.startswith('reaction_') and fnm.endswith('.xyz'):
                 srl = int(os.path.splitext(fnm)[0].split("_")[1])
                 maxinst = 0
                 for fnm1 in os.listdir('.'):
@@ -1068,14 +1068,14 @@ class Nanoreactor(Molecule):
                 overlap = (float(len(rframes.intersection(rframes0))) / max(len(rframes), len(rframes0)))
                 if aset == aset0 and overlap > 0.9:
                     if self.printlvl >= 0: print "Reaction in frames %i -> %i overlaps with %s (%.1f%% frames)" % (Firsts[rxnnum][inst], Lasts[rxnnum][inst], rxn0, 100*overlap)
-                    return srl0, maxinst
-            return -1, -1
+                    return srl0, maxinst, rxn0
+            return -1, -1, None
                 
         for RxnNum in np.argsort(np.array([min(i) for i in Firsts])): # Reactions sorted by the first frame of occurrence
             InstSrl = 0                                               # Instance number of the reaction for writing to disk
             RxnSrl_ = RxnSrl                                          # The temporary reaction serial number (will be replaced if reaction exists on disk)
             for Inst in np.argsort(Firsts[RxnNum]):                   # Instances of a given reaction, again sorted by first frame of occurrence
-                HaveRxn, HaveInst = rxn_lookup(RxnNum, Inst)          # Whether this reaction already exists in the list of reaction_123.xyz, and the maximum instance of this reaction.
+                HaveRxn, HaveInst, HaveFnm = rxn_lookup(RxnNum, Inst) # Whether this reaction already exists in the list of reaction_123.xyz, and the maximum instance of this reaction.
                 if HaveRxn > -1:
                     RxnSrl_ = HaveRxn
                 if HaveInst >= InstSrl:                               # Any more instances of this reaction will need to be written with reaction_123_003.xyz (003 incremented from 002 for example)
@@ -1089,23 +1089,26 @@ class Nanoreactor(Molecule):
                     if InstSrl < 10:
                         if self.printlvl >= 0: print "\x1b[1;92mSaving\x1b[0m frames %i -> %i to %s" % (Firsts[RxnNum][Inst], Lasts[RxnNum][Inst], outfnm)
                         Slices[RxnNum][Inst].write(outfnm)
-                        # Build a molecule object containing the corresponding charges and spin
-                        SliceQSz = deepcopy(Slices[RxnNum][Inst])
-                        ThisIdx = SliceIndices[RxnNum][Inst]
-                        ThisFrm = SliceFrames[RxnNum][Inst]
-                        # Grab charges from the global trajectory
-                        ThisChg = [self.Charges[iframe][ThisIdx] for iframe in ThisFrm]
-                        ThisSpn = [self.Spins[iframe][ThisIdx] for iframe in ThisFrm]
-                        # Assign charges to positions (for convenience)
-                        for iframe in range(len(SliceQSz)):
-                            for iatom in range(SliceQSz.na):
-                                SliceQSz.xyzs[iframe][iatom][0] = ThisChg[iframe][iatom]
-                                SliceQSz.xyzs[iframe][iatom][1] = ThisSpn[iframe][iatom]
-                                SliceQSz.xyzs[iframe][iatom][2] = 0.0
-                        # Write charges and spins to x and y coordinates in a duplicate .xyz file
-                        SliceQSz.write(outfnm.replace('.xyz','.qsz'),ftype='xyz')
                     elif self.printlvl >= 0: print "\x1b[1;93mNot Saving\x1b[0m frames %i -> %i (instance %i)" % (Firsts[RxnNum][Inst], Lasts[RxnNum][Inst], InstSrl)
                     InstSrl += 1
+                if HaveFnm != None:
+                    outfnm = HaveFnm
+                if os.path.exists(outfnm) and not os.path.exists(outfnm.replace('.xyz','.qsz')):
+                    # Build a molecule object containing the corresponding charges and spin
+                    SliceQSz = deepcopy(Slices[RxnNum][Inst])
+                    ThisIdx = SliceIndices[RxnNum][Inst]
+                    ThisFrm = SliceFrames[RxnNum][Inst]
+                    # Grab charges from the global trajectory
+                    ThisChg = [self.Charges[iframe][ThisIdx] for iframe in ThisFrm]
+                    ThisSpn = [self.Spins[iframe][ThisIdx] for iframe in ThisFrm]
+                    # Assign charges to positions (for convenience)
+                    for iframe in range(len(SliceQSz)):
+                        for iatom in range(SliceQSz.na):
+                            SliceQSz.xyzs[iframe][iatom][0] = ThisChg[iframe][iatom]
+                            SliceQSz.xyzs[iframe][iatom][1] = ThisSpn[iframe][iatom]
+                            SliceQSz.xyzs[iframe][iatom][2] = 0.0
+                    # Write charges and spins to x and y coordinates in a duplicate .xyz file
+                    SliceQSz.write(outfnm.replace('.xyz','.qsz'),ftype='xyz')
             if RxnSrl_ == RxnSrl: RxnSrl += 1
 
         if self.printlvl >= 0: print
