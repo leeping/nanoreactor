@@ -399,7 +399,7 @@ def monotonic_decreasing(arr, start=None, end=None, verbose=False):
     if verbose: print "Starting @ %i : %.6f" % (start, arr[start])
     if end > start:
         i = start+1
-        while i < end:
+        while i <= end:
             if arr[i] < a0:
                 a0 = arr[i]
                 idx.append(i)

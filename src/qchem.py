@@ -1134,7 +1134,7 @@ def ProcessIRC(IRCData, xyz0=None):
     M.comms = ["Intrinsic Reaction Coordinate: Energy = % .4f kcal/mol" % i for i in E]
     M.comms[iTS] += " (Transition State)"
     # Eliminate geometry optimization frames that go up in energy.
-    selct = np.concatenate((monotonic_decreasing(E, iTS, 0)[::-1], monotonic_decreasing(E, iTS, len(M))[1:]))
+    selct = np.concatenate((monotonic_decreasing(E, iTS, 0)[::-1], monotonic_decreasing(E, iTS, len(M)-1)[1:]))
     M = M[selct]
     E = E[selct]
     # Write structures and populations.
