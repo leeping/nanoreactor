@@ -1,7 +1,7 @@
 #===========================================#
 #|    Utility functions and classes for    |#
 #|     managing database of reactions      |#
-#|        Author: Lee-Ping Wang            |#
+#|  Authors: Lee-Ping Wang, Leah Bendavid  |#
 #===========================================#
 
 import os, sys, re, shutil, time
@@ -839,6 +839,115 @@ class Calculation(object):
         """
         return TopEqual(m1, m2) if self.trivial else MolEqual(m1, m2)
 
+class FragmentID(Calculation):
+    """
+    Class representing the identification of the fragment molecules in a reaction.
+    """
+    calctype = "FragmentID"
+    statlvl = 2
+
+    def __init__(self, initial, home, **kwargs):
+        super(FragmentID, self).__init__(initial, home, **kwargs)
+        # Failure counter.  When this hits three, the calculation deletes itself :P
+        self.fails = 0
+
+    def launch_(self):
+        """
+        Launch a fragment identification calculation.
+        """
+        # Check to see if part 1 of fragment optimization has already been completed
+        extract_tar(os.path.join(self.home, 'fragmentid.tar.bz2'), ['fragmentid.txt'])
+        if os.path.exists(os.path.join(self.home, 'fragmentid.txt')):
+            if hasattr(self.parent, 'countFragmentIDs'):
+                complete, total = self.parent.countFragmentIDs()
+                self.saveStatus('converged', display=(self.verbose>=2), to_disk=False, message='%i/%i complete' % (complete+1, total))
+            else:
+                self.saveStatus('converged', display=(self.verbose>=2), to_disk=False)
+            # Once ANY fragment optimization job is finished, we pass through the parent object again.
+            self.parent.launch()
+            return
+        elif os.path.exists(os.path.join(self.home, 'fragmentid.log')):
+            self.fails += 1
+            logger.info("%s has fragmentid.log but not fragmentid.txt - it may have failed (%i tries)" % (self.name, self.fails))
+            shutil.move(os.path.join(self.home, 'fragmentid.log'), os.path.join(self.home, 'fragmentid.%i.log' % self.fails))
+            # Number of attempts set to infinity, but really I should be parsing 
+            # the output to see what is failing.
+            if self.fails >= np.inf or self.read_only:
+                self.saveStatus('failed', to_disk=False, message='gave up after %i tries' % self.fails)
+                self.parent.launch()
+            else:
+                self.launch()
+            return
+        if self.read_only: return
+        # Otherwise we run the fragment identification calculation.
+        # Ensure that this calculation contains a Molecule object.
+        if not isinstance(self.initial, Molecule):
+            M = Molecule(self.initial)
+        else:
+            M = deepcopy(self.initial)
+        self.synchronizeChargeMult(M)
+        if self.charge == -999:
+            self.saveStatus('failed', message='Charge and spin inconsistent')
+            return
+        if len(M) != 1:
+            logger.error("Fragment identification can only handle length-1 Molecule objects")
+            raise RuntimeError
+        M.write(os.path.join(self.home, 'initial.xyz'))
+        # Note that the "first" method and basis set is used for fragment identification.
+        make_task("identify-fragments.py initial.xyz --method %s --basis \"%s\" --charge %i --mult %i &> fragmentid.log" % 
+                  (self.methods[0], self.bases[0], self.charge, self.mult), 
+                  self.home, inputs=["initial.xyz"], outputs=["fragmentid.log", "fragmentid.tar.bz2"], 
+                  tag=self.name, calc=self, verbose=self.verbose)
+
+class FragmentOpt(Calculation):
+    """
+    Class that optimizes the fragments of the reaction.
+    """
+    calctype = "FragmentOpt"
+    statlvl = 2
+
+    def __init__(self, initial, home, **kwargs):
+        super(FragmentOpt, self).__init__(initial, home, **kwargs)
+        # Failure counter.  When this hits three, the calculation deletes itself :P
+        self.fails = 0
+    
+    def launch_(self):
+        """
+        Launch a fragment optimization calculation.
+        """
+        # Check to see if fragment optimization has already been completed
+        # Need to change this since we're splitting it into two parts of the calculation.
+        extract_tar(os.path.join(self.home, 'fragmentopt.tar.bz2'), ['fragmentopt.xyz', 'fragmentopt.nrg'])
+        if os.path.exists(os.path.join(self.home, 'fragmentopt.nrg')):
+            if hasattr(self.parent, 'countFragmentOpts'):
+                complete, total = self.parent.countFragmentOpts()
+                self.saveStatus('converged', display=(self.verbose>=2), to_disk=False, message='%i/%i complete' % (complete+1, total))
+            else:
+                self.saveStatus('converged', display=(self.verbose>=2), to_disk=False)
+            # Once ANY fragment optimization job is finished, we pass through the parent object again.
+            self.parent.launch()
+            return
+        elif os.path.exists(os.path.join(self.home, 'fragmentopt.log')):
+            self.fails += 1
+            logger.info("%s has fragmentopt.log but not fragmentopt.nrg - it may have failed (%i tries)" % (self.name, self.fails))
+            shutil.move(os.path.join(self.home, 'fragmentopt.log'), os.path.join(self.home, 'fragmentopt.%i.log' % self.fails))
+            # Number of attempts set to infinity, but really I should be parsing 
+            # the output to see what is failing.
+            if self.fails >= np.inf or self.read_only:
+                self.saveStatus('failed', to_disk=False, message='gave up after %i tries' % self.fails)
+                self.parent.launch()
+            else:
+                self.launch()
+            return
+        if self.read_only: return
+        # Note that the "first" method and basis set is used for the fragment optimization - might want to change this?
+        make_task("optimize-fragments.py --method %s --basis \"%s\" &> fragmentopt.log" % 
+                  (self.methods[0], self.bases[0]), 
+                  self.home, outputs=["fragmentopt.log", "fragmentopt.tar.bz2"], 
+                  tag=self.name, calc=self, verbose=self.verbose)
+
+
+
 class Optimization(Calculation):
     """
     Class representing a geometry optimization.
@@ -1282,6 +1391,12 @@ class Pathway(Calculation):
     """
     calctype = "Pathway"
 
+    def countFragmentIDs(self):
+        return sum([calc.status == 'converged' for calc in self.FragmentIDs.values()]), len(self.FragmentIDs.values())
+
+    def countFragmentOpts(self):
+        return sum([calc.status == 'converged' for calc in self.FragmentOpts.values()]), len(self.FragmentOpts.values())
+
     def countOptimizations(self):
         return sum([calc.status == 'converged' for calc in self.Optimizations.values()]), len(self.Optimizations.values())
 
@@ -1414,12 +1529,83 @@ class Trajectory(Calculation):
         self.dynmax = kwargs.pop('dynmax', 2000)
         # Trajectories that contain too many atoms can be excluded using this filter.
         self.atomax = kwargs.pop('atomax', 50)
-        # Create the structure and pathway folders.
+        # Create the fragments, structure, and pathway folders.
+        self.fragmentFolder = os.path.join(self.home, 'fragments')
         self.structureFolder = os.path.join(self.home, 'structures')
         self.pathwayFolder = os.path.join(self.home, 'pathways')
         # Denotes whether the class contains the full complement of optimizations.
+        if not os.path.exists(self.fragmentFolder): os.makedirs(self.fragmentFolder)
         if not os.path.exists(self.structureFolder): os.makedirs(self.structureFolder)
         if not os.path.exists(self.pathwayFolder): os.makedirs(self.pathwayFolder)
+
+    def makeFragments(self):
+        """ Create and launch fragment identifications. This code is called ONCE per trajectory"""
+        self.FragmentIDs = OrderedDict()
+        self.frames = range(0, len(self.M), self.subsample)
+        if (len(self.M)-1) not in self.frames:
+            self.frames.append(len(self.M)-1)
+        for frm in self.frames:
+            ohome = os.path.join(self.fragmentFolder, "%%0%ii" % self.fdigits % frm)
+            oname = ohome.replace(os.getcwd(), '').strip('/')
+            logger.info("Fragment geometry identification in %s" % (ohome), printlvl=3)
+            # Note: This code may return to the parent and rerun Trajectory.launch() before the dictionary is filled.
+            self.FragmentIDs[frm] = FragmentID(initial=self.M[frm], name=oname, home=ohome, 
+                                                   parent=self, priority=self.priority, **self.kwargs)
+            self.FragmentIDs[frm].launch()
+        # Potentially have code to process the output and print the delta G's?
+
+    def makeFragOpts(self):
+        """ Create and launch fragment optimizations. This code is called ONCE per trajectory"""
+        FragIDs = OrderedDict()
+        # Determine which frames to actually optimize
+        for frm in self.frames:
+            ohome = os.path.join(self.fragmentFolder, "%%0%ii" % self.fdigits % frm)    
+            fragidtxt = open(os.path.join(ohome,"fragmentid.txt"))
+            formulas = sorted(fragidtxt.readline().split())
+            bondfactor = fragidtxt.readline().split()[1]
+            validity = fragidtxt.readline().strip()
+            fragidtxt.close()
+            if validity != "invalid": 
+                FragIDs[frm]=(formulas, bondfactor)
+        # Sort by bondfactor in descending order
+        FragIDs = OrderedDict(sorted(FragIDs.items(), key=lambda item: item[1][1], reverse = True))
+        # Pick out frame with maximum bondfactor for fragment group
+        self.optlist = []
+        fraglist = []
+        logger.info("Identifying frames for unique fragment sets with maximum bonding:")
+        for frm,frag in FragIDs.items():
+            if frag[0] not in fraglist:
+                logger.info("Frame: %d; Fragments: %s" % (frm, frag[0]))
+                self.optlist.append(frm)
+                fraglist.append(frag[0])
+        self.optlist = sorted(self.optlist)
+        self.FragmentOpts = OrderedDict()
+        # Actually run fragment optimizations on each fragment
+        for frm in self.optlist:
+            ohome = os.path.join(self.fragmentFolder, "%%0%ii" % self.fdigits % frm, "opt")
+            oname = ohome.replace(os.getcwd(), '').strip('/')
+            logger.info("Fragment geometry optimization in %s" % (ohome), printlvl=3)
+            # Note: This code may return to the parent and rerun Trajectory.launch() before the dictionary is filled.
+            self.FragmentOpts[frm] = FragmentOpt(initial=self.M[frm], name=oname, home=ohome, 
+                                                   parent=self, priority=self.priority, **self.kwargs)
+            self.FragmentOpts[frm].launch()
+    
+    def calcDeltaGs(self):
+        """ Calculate Delta-G's from sums of fragment energies. This code is called once per trajectory"""
+        nrg = OrderedDict()
+        formulas = OrderedDict()
+        for frm in self.optlist:
+            ohome = os.path.join(self.fragmentFolder, "%%0%ii" % self.fdigits % frm, "opt")
+            nrgfile = open(os.path.join(ohome, 'fragmentopt.nrg'))
+            formulas[frm] = nrgfile.readline().strip()
+            nrg[frm] = float(nrgfile.readline().split()[2])
+            nrgfile.close()
+        self.DeltaG = 0
+        for fi in self.optlist:
+            for fj in self.optlist:
+                if fj > fi:
+                    self.DeltaG = nrg[fj] - nrg[fi]
+                    logger.info("Reaction %s -> %s : Delta-E = %f Ha\n" % (formulas[fi], formulas[fj], self.DeltaG))
 
     def makeOptimizations(self):
         """ Create and launch geometry optimizations.  This code is called ONCE per trajectory. """
@@ -1598,6 +1784,12 @@ class Trajectory(Calculation):
         # LPW Attempt to save some memory
         del OptMols
 
+    def countFragmentIDs(self):
+        return sum([calc.status == 'converged' for calc in self.FragmentIDs.values()]), len(self.frames)
+
+    def countFragmentOpts(self):
+        return sum([calc.status == 'converged' for calc in self.FragmentOpts.values()]), len(self.optlist)
+    
     def countOptimizations(self):
         return sum([calc.status == 'converged' for calc in self.Optimizations.values()]), len(self.frames)
 
@@ -1623,19 +1815,42 @@ class Trajectory(Calculation):
         if self.M.na > self.atomax:
             self.saveStatus('skip', message='Too many atoms (%i > %i ; use --atomax to increase)' % (self.M.na, self.atomax), to_disk=False)
             return
-        # Create geometry optimizations if we haven't done so already.
-        if not hasattr(self, 'Optimizations'):
-            self.makeOptimizations()
-        # If optimizations are complete, create pathway calculations;
-        # otherwise print optimization status.  Once pathways are
-        # created, this method will no longer be called so we don't
-        # need to cycle through again.
+        # Create fragment identifications if we haven't done so already.
+        if not hasattr(self, 'FragmentIDs'):
+            self.makeFragments()
         else:
-            for calc in self.Optimizations.values():
-                if os.path.exists(os.path.join(calc.home, 'optimize.xyz')):
-                    complete, total = self.countOptimizations()
+            for calc in self.FragmentIDs.values():
+                if os.path.exists(os.path.join(calc.home, 'fragmentid.txt')):
+                    complete, total = self.countFragmentIDs()
                     calc.saveStatus('converged', display=(self.verbose>=2), to_disk=False, message='%i/%i complete' % (complete+1, total))
+        # Optimize fragments if we haven't done so already
+        if (len(self.FragmentIDs) == len(self.frames)) and all([calc.status in ['converged', 'failed'] for calc in self.FragmentIDs.values()]):
+            if not hasattr(self, 'FragmentOpts'):
+                self.makeFragOpts()
+            else:
+                for calc in self.FragmentOpts.values():
+                    if os.path.exists(os.path.join(calc.home, 'fragmentopt.txt')):
+                        complete, total = self.countFragmentOpts()
+                        calc.saveStatus('converged', display=(self.verbose>=2), to_disk=False, message='%i/%i complete' % (complete+1, total))
 
-        if (len(self.Optimizations) == len(self.frames)) and all([calc.status in ['converged', 'failed'] for calc in self.Optimizations.values()]):
-            if not hasattr(self, 'Pathways'):
-                self.makePathways()
+        if (len(self.FragmentIDs) == len(self.frames)) and all([calc.status in ['converged', 'failed'] for calc in self.FragmentIDs.values()]):
+            if (len(self.FragmentOpts) == len(self.optlist)) and all([calc.status in ['converged', 'failed'] for calc in self.FragmentOpts.values()]):        
+                # Calculate Delta-G's of the reaction from fragments if we haven't done so already
+                if not hasattr(self, 'DeltaG'):
+                    self.calcDeltaGs()
+                # Create geometry optimizations if we haven't done so already.
+                if not hasattr(self, 'Optimizations'):
+                    self.makeOptimizations()
+                # If optimizations are complete, create pathway calculations;
+                # otherwise print optimization status.  Once pathways are
+                # created, this method will no longer be called so we don't
+                # need to cycle through again.
+                else:
+                    for calc in self.Optimizations.values():
+                        if os.path.exists(os.path.join(calc.home, 'optimize.xyz')):
+                            complete, total = self.countOptimizations()
+                            calc.saveStatus('converged', display=(self.verbose>=2), to_disk=False, message='%i/%i complete' % (complete+1, total))
+
+                if (len(self.Optimizations) == len(self.frames)) and all([calc.status in ['converged', 'failed'] for calc in self.Optimizations.values()]):
+                    if not hasattr(self, 'Pathways'):
+                        self.makePathways()
