@@ -173,6 +173,7 @@ def main():
     nrg = open('fragmentopt.nrg', 'w')
     for subef in subeffinal : nrg.write(subef + " ")
     nrg.write("\nTotal energy: % 18.10f" % FragE)
+    if subefstart != subeffinal: nrg.write("\n invalid")
     nrg.close()
     # Archive and exit.
     tarexit()

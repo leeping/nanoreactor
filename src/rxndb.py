@@ -940,9 +940,9 @@ class FragmentOpt(Calculation):
                 self.launch()
             return
         if self.read_only: return
-        # Note that the "first" method and basis set is used for the fragment optimization - might want to change this?
+        # Note that the "last" method and basis set is used for the fragment optimization
         make_task("optimize-fragments.py --method %s --basis \"%s\" &> fragmentopt.log" % 
-                  (self.methods[0], self.bases[0]), 
+                  (self.methods[-1], self.bases[-1]), 
                   self.home, outputs=["fragmentopt.log", "fragmentopt.tar.bz2"], 
                   tag=self.name, calc=self, verbose=self.verbose)
 
@@ -1592,20 +1592,26 @@ class Trajectory(Calculation):
     
     def calcDeltaGs(self):
         """ Calculate Delta-G's from sums of fragment energies. This code is called once per trajectory"""
-        nrg = OrderedDict()
-        formulas = OrderedDict()
+        nrg = {}
+        formulas = {}
+        validity = {}
         for frm in self.optlist:
             ohome = os.path.join(self.fragmentFolder, "%%0%ii" % self.fdigits % frm, "opt")
             nrgfile = open(os.path.join(ohome, 'fragmentopt.nrg'))
             formulas[frm] = nrgfile.readline().strip()
             nrg[frm] = float(nrgfile.readline().split()[2])
+            validity[frm] = nrgfile.readline().strip()
             nrgfile.close()
         self.DeltaG = 0
+        for frm in self.optlist:
+            if validity[frm] == "invalid":
+                logger.info("Optimization from frame %s was invalid - molecular formulas not preserved" % frm)
+                logger.info("No Delta-E will be calculated from frame %s" % frm)
         for fi in self.optlist:
             for fj in self.optlist:
-                if fj > fi:
+                if fj > fi and validity[fi] != "invalid" and validity[fj] != "invalid":
                     self.DeltaG = nrg[fj] - nrg[fi]
-                    logger.info("Reaction %s -> %s : Delta-E = %f Ha\n" % (formulas[fi], formulas[fj], self.DeltaG))
+                    logger.info("Frame %s -> %s: Reaction %s -> %s; Delta-E = %f Ha" % (fi, fj, formulas[fi], formulas[fj], self.DeltaG))
 
     def makeOptimizations(self):
         """ Create and launch geometry optimizations.  This code is called ONCE per trajectory. """
