@@ -64,7 +64,11 @@ def main():
             if M.qm_bondorder[i,j] > bo_thresh:
                 M.bonds.append((i,j))
                 numbonds += 1
-                bondfactor += M.qm_bondorder[i,j]
+                if M.qm_bondorder[i,j] <= 1 :
+                    bondfactor += M.qm_bondorder[i,j]
+                else:
+                    # Count double bonds as 1
+                    bondfactor += 1
     bondfactor /= numbonds
     M.build_topology()
     subxyz = []
@@ -117,7 +121,7 @@ def main():
     fragid = open('fragmentid.txt', 'w')
     for formula in subef : fragid.write(formula+" ")
     fragid.write("\nBondfactor: " + str(bondfactor))
-    if not all(subvalid): fragid.write("\n invalid calculation")
+    if not all(subvalid): fragid.write("\ninvalid")
     fragid.close()
     # Archive and exit
     tarexit()

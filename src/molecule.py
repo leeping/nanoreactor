@@ -103,8 +103,12 @@
 # qm_grads   = List of arrays of gradients (i.e. negative of the atomistic forces) from QM calculations
 # qm_espxyzs = List of arrays of xyz coordinates for ESP evaluation
 # qm_espvals = List of arrays of ESP values
+# qm_zpe     = Zero point energy, kcal/mol (from a qchem freq calculation)
+# qm_entropy = Entropy contribution at STP, cal/mol.K (from a qchem freq calculation)
+# qm_enthalpy= Enthalpic contribution at STP, excluding electronic energy and ZPE, kcal/mol (from a qchem freq calculation)
 FrameVariableNames = set(['xyzs', 'comms', 'boxes', 'qm_hessians', 'qm_grads', 'qm_energies', 'qm_interaction', 
-                          'qm_espxyzs', 'qm_espvals', 'qm_extchgs', 'qm_mulliken_charges', 'qm_mulliken_spins'])
+                          'qm_espxyzs', 'qm_espvals', 'qm_extchgs', 'qm_mulliken_charges', 'qm_mulliken_spins',
+                          'qm_zpe', 'qm_entropy', 'qm_enthalpy'])
 #=========================================#
 #| Data attributes in AtomVariableNames  |#
 #| must be a list along the atom axis,   |#
@@ -2876,6 +2880,9 @@ class Molecule(object):
                         'energy_mp2'       : ("^(ri)*(-)*mp2 +total energy += +[-+]?([0-9]*\.)?[0-9]+ +au$",-2),
                         'energy_ccsd'      : ("^CCSD Total Energy += +[-+]?([0-9]*\.)?[0-9]+$",-1),
                         'energy_ccsdt'     : ("^CCSD\(T\) Total Energy += +[-+]?([0-9]*\.)?[0-9]+$",-1),
+                        'zpe'              : ("^(\s+)?Zero point vibrational energy:\s+[-+]?([0-9]*\.)?[0-9]+\s+kcal\/mol$", -2),
+                        'entropy'          : ("^(\s+)?Total Entropy:\s+[-+]?([0-9]*\.)?[0-9]+\s+cal\/mol\.K$", -2),
+                        'enthalpy'         : ("^(\s+)?Total Enthalpy:\s+[-+]?([0-9]*\.)?[0-9]+\s+kcal\/mol$", -2)
                         }
         matrix_match = {'analytical_grad'  :'Full Analytical Gradient',
                         'gradient_scf'     :'Gradient of SCF Energy',
@@ -3114,6 +3121,13 @@ class Molecule(object):
         elif 'SCF failed to converge' not in errok:
             logger.error('There are no energies in %s\n' % fnm)
             raise RuntimeError
+        # Process ZPE, entropy, and enthalpy from a freq calculation
+        if len(Floats['zpe']) > 0:
+            Answer['qm_zpe'] = Floats['zpe']
+        if len(Floats['entropy']) > 0:
+            Answer['qm_entropy'] = Floats['entropy']
+        if len(Floats['enthalpy']) > 0:
+            Answer['qm_enthalpy'] = Floats['enthalpy']
     
         #### Sanity checks
         # We currently don't have a graceful way of dealing with SCF convergence failures in the output file.
