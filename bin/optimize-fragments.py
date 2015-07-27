@@ -139,6 +139,9 @@ def main():
     print "Running individual optimizations."
     # Run individual geometry optimizations.
     FragE = 0.0
+    FragZPE = 0.0
+    FragEntr = 0.0
+    FragEnth = 0.0
     for i in range(len(subxyz)):
         if subna[i] > 1:
             M = QCOptIC(subxyz[i], subchg[i], submult[i], args.method, args.basis, cycles=args.cycles,
@@ -153,27 +156,41 @@ def main():
             QCSP.jobtype = 'sp'
             QCSP.calculate()
             M = QCSP.load_qcout()
-        # Write optimization results to file.
-        M.write('%s.opt.xyz' % os.path.splitext(subxyz[i])[0])
-        # Write Mulliken charge and spin populations to file.
-        QS = M.get_populations()
-        QS.write('%s.opt.pop' % os.path.splitext(subxyz[i])[0], ftype='xyz')
-        # Print out new molecular formulas.
+        # Write optimization final result to file.
         M = M[-1]
+        fragoptfile = os.path.splitext(subxyz[i])[0] + ".opt.xyz"
+        M.write(fragoptfile)
+        QCFR = QChem(fragoptfile, charge=subchg[i], mult=submult[i], method=args.method, 
+                         basis=args.basis, qcin='%s.freq.in' % os.path.splitext(fragoptfile)[0])
+        QCFR.freq()
+        M = QCFR.load_qcout()
+        # Print out new molecular formulas.
         # This time we should be able to use covalent radii.
         M.build_topology(force_bonds=True)
         optformula = ' '.join([m.ef() for m in M.molecules])
         subeffinal.append(optformula)
-        print "%s.opt.xyz : formula %-12s charge %i mult %i energy % 18.10f" % (os.path.splitext(subxyz[i])[0], optformula, subchg[i], submult[i], M.qm_energies[-1])
-        FragE += M.qm_energies[-1]
-        SumFrags.append(M[-1])
+        print ("%s.opt.xyz : formula %s; charge %i; mult %i; energy %f Ha;"
+               "ZPE %f kcal/mol; entropy %f cal/mol.K; enthalpy %f kcal/mol" 
+               % (os.path.splitext(subxyz[i])[0], optformula, subchg[i], submult[i], M.qm_energies[0], M.qm_zpe[0], 
+                  M.qm_entropy[0], M.qm_enthalpy[0]))
+        FragE += M.qm_energies[0]
+        FragZPE += M.qm_zpe[0]
+        FragEntr += M.qm_entropy[0]
+        FragEnth += M.qm_enthalpy[0]
+        SumFrags.append(M[0])
     for fragment in SumFrags : fragment.write('fragmentopt.xyz', append=True)
     if subefstart != subeffinal: print "Fragments changed during optimization, calculation invalid" 
-    print "Final energy of optimized frags: % 18.10f" % FragE
+    print "Final electronic energy (Ha) of optimized frags: % 18.10f" % FragE
+    print "Final ZPE (kcal/mol) of optimized frags: % 18.10f" % FragZPE
+    print "Final entropy (cal/mol.K) of optimized frags: % 18.10f" % FragEntr
+    print "Final enthalpy (kcal/mol) of optimized frags: % 18.10f" % FragEnth
     nrg = open('fragmentopt.nrg', 'w')
     for subef in subeffinal : nrg.write(subef + " ")
-    nrg.write("\nTotal energy: % 18.10f" % FragE)
-    if subefstart != subeffinal: nrg.write("\n invalid")
+    nrg.write("\nTotal electronic energy: %f Ha\n" % FragE)
+    nrg.write("Total ZPE: %f kcal/mol\n" % FragZPE )
+    nrg.write("Total entropy (STP): %f cal/mol.K\n" % FragEntr)
+    nrg.write("Total enthalpy (STP): %f kcal/mol\n" % FragEnth)
+    if subefstart != subeffinal: nrg.write("invalid")
     nrg.close()
     # Archive and exit.
     tarexit()

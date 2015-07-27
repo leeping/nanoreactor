@@ -369,7 +369,7 @@ def analyze_path(xyz, nrg, cwd, xyz0=None, label="Reaction", draw=2):
     # Print summary information and draw the summary PDF.
     logger.info('=> Result: %s --%s-- \x1b[0m (%s)' % (color, status, message), printlvl=1)
     logger.info('=> ' + strrxn, printlvl=1)
-    logger.info('=> DE = % .4f Ea = %.4f (kcal/mol)' % (DE, Ea))
+    logger.info('=> (Electronic energy only) DE = % .4f Ea = %.4f (kcal/mol)' % (DE, Ea))
     if draw == 2: draw = (not os.path.exists('%s/reaction.pdf' % cwd))
     elif draw == 1: draw = (status == 'correct') and (not os.path.exists('%s/reaction.pdf' % cwd))
     if draw < 3: draw = (draw and not MolEqual(pathR, pathP))
@@ -1040,7 +1040,7 @@ class TransitionState(Calculation):
         # the optimization is completed!
         extract_tar(os.path.join(self.home, 'transition-state.tar.bz2'), ['ts.xyz', 'irc.nrg', 'irc.pop', 'irc.xyz', 'initpath.xyz', 
                                                                           'irc_spaced.xyz', 'irc_reactant.bnd', 'irc_product.bnd', 
-                                                                          'irc_transition.bnd', 'irc_transition.vib'])
+                                                                          'irc_transition.bnd', 'irc_transition.vib', 'deltaG.nrg'])
         extract_tar(os.path.join(self.home, 'ts-analyze.tar.bz2'), ['irc_transition.bnd', 'irc_transition.vib'])
         if os.path.exists(os.path.join(self.home, 'transition-state.log')):
             log = os.path.join(self.home, 'transition-state.log')
@@ -1070,6 +1070,12 @@ class TransitionState(Calculation):
             if status == 'correct':
                 self.parent.saveStatus('correct', message='Correct transition state found')
                 self.parent.parent.saveStatus('complete', message='Correct transition state found')
+                # Print DeltaG's from the calculation
+                if os.path.exists(os.path.join(self.home, 'deltaG.nrg')):
+                    for line in open(os.path.join(self.home, 'deltaG.nrg'), 'r').readlines():
+                        logger.info(line)
+                else:
+                    logger.info("deltaG.nrg file missing, can't report energy information")                
             if (not self.ts_branch): self.parent.launch()
         else:
             if os.path.exists(os.path.join(self.home, 'transition-state.log')):
@@ -1112,7 +1118,8 @@ class FreezingString(Calculation):
         # Extract .tar file contents.
         extract_tar(os.path.join(self.home, 'freezing-string.tar.bz2'), ['Vfile.txt', 'stringfile.txt', 'ts.xyz', 'irc.nrg', 
                                                                          'irc.pop', 'irc.xyz', 'irc_spaced.xyz', 'irc_reactant.bnd', 
-                                                                         'irc_product.bnd', 'irc_transition.bnd', 'irc_transition.vib'])
+                                                                         'irc_product.bnd', 'irc_transition.bnd', 'irc_transition.vib',
+                                                                         'deltaG.nrg'])
         extract_tar(os.path.join(self.home, 'ts-analyze.tar.bz2'), ['irc_transition.bnd', 'irc_transition.vib'])
         # Read freezing string results if exist, and return.
         if os.path.exists(os.path.join(self.home, 'freezing-string.log')) and os.path.exists(os.path.join(self.home, 'stringfile.txt')):
@@ -1137,6 +1144,12 @@ class FreezingString(Calculation):
             # Save status as complete no matter the result; no jobs come after freezing string 
             # and it doesn't set the status in the parent.
             self.saveStatus('complete')
+            # Print DeltaG's from the calculation
+            if os.path.exists(os.path.join(self.home, 'deltaG.nrg')):
+                for line in open(os.path.join(self.home, 'deltaG.nrg'), 'r').readlines():
+                    logger.info(line)
+            else:
+                logger.info("deltaG.nrg file missing, can't report energy information") 
         else:
             if os.path.exists(os.path.join(self.home, 'freezing-string.log')):
                 logger.info("Log file is present, no error but result is missing. Check this log file:", printlvl=2)
@@ -1592,26 +1605,43 @@ class Trajectory(Calculation):
     
     def calcDeltaGs(self):
         """ Calculate Delta-G's from sums of fragment energies. This code is called once per trajectory"""
-        nrg = {}
         formulas = {}
+        nrg = {}
+        zpe = {}
+        entr = {}
+        enth = {}
         validity = {}
+        Ha_to_kcalmol = 627.5096080305927
         for frm in self.optlist:
             ohome = os.path.join(self.fragmentFolder, "%%0%ii" % self.fdigits % frm, "opt")
             nrgfile = open(os.path.join(ohome, 'fragmentopt.nrg'))
             formulas[frm] = nrgfile.readline().strip()
-            nrg[frm] = float(nrgfile.readline().split()[2])
+            nrg[frm] = float(nrgfile.readline().split()[3])
+            zpe[frm] = float(nrgfile.readline().split()[2])
+            entr[frm] = float(nrgfile.readline().split()[3])
+            enth[frm] = float(nrgfile.readline().split()[3])
             validity[frm] = nrgfile.readline().strip()
             nrgfile.close()
         self.DeltaG = 0
+        DeltaE = 0
         for frm in self.optlist:
             if validity[frm] == "invalid":
                 logger.info("Optimization from frame %s was invalid - molecular formulas not preserved" % frm)
-                logger.info("No Delta-E will be calculated from frame %s" % frm)
+                logger.info("No Delta-G will be calculated from frame %s" % frm)
         for fi in self.optlist:
             for fj in self.optlist:
                 if fj > fi and validity[fi] != "invalid" and validity[fj] != "invalid":
-                    self.DeltaG = nrg[fj] - nrg[fi]
-                    logger.info("Frame %s -> %s: Reaction %s -> %s; Delta-E = %f Ha" % (fi, fj, formulas[fi], formulas[fj], self.DeltaG))
+                    Efi = nrg[fi]*Ha_to_kcalmol + zpe[fi]
+                    Gfi = Efi - entr[fi]*0.29815 + enth[fi]
+                    Efj = nrg[fj]*Ha_to_kcalmol + zpe[fj]
+                    Gfj = Efj - entr[fj]*0.29815 + enth[fj]
+                    DeltaE = Efj - Efi
+                    self.DeltaG = Gfj - Gfi
+                    strrxn = ' + '.join(['%s%s' % (str(j) if j>1 else '', i) for i, j in Counter(formulas[fi].split()).items()])
+                    strrxn += ' -> '
+                    strrxn += ' + '.join(['%s%s' % (str(j) if j>1 else '', i) for i, j in Counter(formulas[fj].split()).items()])
+                    logger.info("=> Frame %s -> %s: Reaction %s; Delta-H (0K) = %.4f kcal/mol; Delta-G (STP) = %.4f kcal/mol" 
+                                % (fi, fj, strrxn, DeltaE, self.DeltaG))
 
     def makeOptimizations(self):
         """ Create and launch geometry optimizations.  This code is called ONCE per trajectory. """

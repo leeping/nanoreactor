@@ -26,6 +26,7 @@ import argparse
 
 tarexit.tarfnm = 'freezing-string.tar.bz2'
 tarexit.include = ['*.xyz', 'irc*', 'qc*', '*.txt', '*.log', '*.err'] 
+Ha_to_kcalmol = 627.5096080305927
 
 def parse_user_input():
     # Parse user input - run at the beginning.
@@ -111,6 +112,26 @@ def main():
     np.savetxt("irc_reactant.bnd", QCR.load_qcout().qm_bondorder, fmt="%8.3f")
     np.savetxt("irc_product.bnd", QCP.load_qcout().qm_bondorder, fmt="%8.3f")
     np.savetxt("irc_transition.bnd", QCT.load_qcout().qm_bondorder, fmt="%8.3f")
+    # Calculate ZPEs, entropy, enthalpy for Delta-G calcs
+    QCR.remextra = OrderedDict()
+    QCP.remextra = OrderedDict()
+    QCT.remextra = OrderedDict()
+    QCR.freq()
+    R = QCR.load_qcout()
+    QCP.freq()
+    P = QCP.load_qcout()
+    QCT.freq()
+    T = QCT.load_qcout()
+    nrg = open('deltaG.nrg', 'w')
+    deltaH = P.qm_energies[0]*Ha_to_kcalmol + P.qm_zpe[0] - R.qm_energies[0]*Ha_to_kcalmol - R.qm_zpe[0]
+    deltaG = deltaH - P.qm_entropy[0]*0.29815 + P.qm_enthalpy[0] + R.qm_entropy[0]*0.29815 - R.qm_enthalpy[0]
+    Ha = T.qm_energies[0]*Ha_to_kcalmol + T.qm_zpe[0] - R.qm_energies[0]*Ha_to_kcalmol - R.qm_zpe[0]
+    Ga = Ha - T.qm_entropy[0]*0.29815 + T.qm_enthalpy[0] + R.qm_entropy[0]*0.29815 - R.qm_enthalpy[0]
+    nrg.write("=> Delta-H(0K) = %.4f kcal/mol\n" % deltaH)
+    nrg.write("=> Delta-G(STP) = %.4f kcal/mol\n" % deltaG)
+    nrg.write("=> Activation enthalpy H_a (0K) = %.4f kcal/mol\n" % Ha)
+    nrg.write("=> Activation Gibbs energy G_a (STP) = %.4f kcal/mol\n" % Ga)
+    nrg.close()
     print "\x1b[1;92mIRC Success!\x1b[0m"
     tarexit()
 

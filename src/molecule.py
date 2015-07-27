@@ -3,7 +3,7 @@
 #|              Chemical file format conversion module                |#
 #|                                                                    |#
 #|                Lee-Ping Wang (leeping@stanford.edu)                |#
-#|                    Last updated May 22, 2015                       |#
+#|                    Last updated July 20, 2015                       |#
 #|                                                                    |#
 #|   This is free software released under version 2 of the GNU GPL,   |#
 #|   please use or redistribute as you see fit under the terms of     |#
@@ -72,6 +72,8 @@
 #|                     John Stone (DCD Plugin)                        |#
 #|                     Pierre Tuffery (Mol2 Plugin)                   |#
 #|                     #python IRC chat on FreeNode                   |#
+#|                                                                    |#
+#|             Contributor: Leah Isseroff Bendavid                    |#
 #|                                                                    |#
 #|             Instructions:                                          |#
 #|                                                                    |#
