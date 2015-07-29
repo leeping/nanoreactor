@@ -38,6 +38,7 @@ def parse_user_input():
                         'Provide 2 names if you want the final TS refinement + IRC to use a different method.')
     parser.add_argument('--bases', type=str, nargs='+', default=['6-31g(d)', '6-31+g(d,p)'], help='Which basis set to use. '
                         'Provide 2 names if you want the final TS refinement + IRC to use a different basis set.')
+    parser.add_argument('--fragpath', type=str, default=None, help='Path to fragment directory')    
     args, sys.argv = parser.parse_known_args(sys.argv[1:])
     return args
 
@@ -113,6 +114,7 @@ def main():
     np.savetxt("irc_product.bnd", QCP.load_qcout().qm_bondorder, fmt="%8.3f")
     np.savetxt("irc_transition.bnd", QCT.load_qcout().qm_bondorder, fmt="%8.3f")
     # Calculate ZPEs, entropy, enthalpy for Delta-G calcs
+    # Should be able to take out freq calcs of R and P once we get can confidently get rid of this section.
     QCR.remextra = OrderedDict()
     QCP.remextra = OrderedDict()
     QCT.remextra = OrderedDict()
@@ -122,16 +124,85 @@ def main():
     P = QCP.load_qcout()
     QCT.freq()
     T = QCT.load_qcout()
-    nrg = open('deltaG.nrg', 'w')
+    nrgfile = open('deltaG.nrg', 'w')
     deltaH = P.qm_energies[0]*Ha_to_kcalmol + P.qm_zpe[0] - R.qm_energies[0]*Ha_to_kcalmol - R.qm_zpe[0]
     deltaG = deltaH - P.qm_entropy[0]*0.29815 + P.qm_enthalpy[0] + R.qm_entropy[0]*0.29815 - R.qm_enthalpy[0]
     Ha = T.qm_energies[0]*Ha_to_kcalmol + T.qm_zpe[0] - R.qm_energies[0]*Ha_to_kcalmol - R.qm_zpe[0]
     Ga = Ha - T.qm_entropy[0]*0.29815 + T.qm_enthalpy[0] + R.qm_entropy[0]*0.29815 - R.qm_enthalpy[0]
-    nrg.write("=> Delta-H(0K) = %.4f kcal/mol\n" % deltaH)
-    nrg.write("=> Delta-G(STP) = %.4f kcal/mol\n" % deltaG)
-    nrg.write("=> Activation enthalpy H_a (0K) = %.4f kcal/mol\n" % Ha)
-    nrg.write("=> Activation Gibbs energy G_a (STP) = %.4f kcal/mol\n" % Ga)
-    nrg.close()
+    nrgfile.write("=> ** The following data is referenced to reactant and product complexes **\n")
+    nrgfile.write("=> ** WARNING! Data may not be accurate in cases with >1 molecule        **\n")
+    nrgfile.write("=> ** Activation enthalpy H_a (0K) =         %.4f kcal/mol               **\n" % Ha)
+    nrgfile.write("=> ** Activation Gibbs energy G_a (STP) =    %.4f kcal/mol               **\n" % Ga)
+    nrgfile.write("=> ** Delta-H(0K) =                          %.4f kcal/mol               **\n" % deltaH)
+    nrgfile.write("=> ** Delta-G(STP) =                         %.4f kcal/mol               **\n" % deltaG)
+    
+    # Calculate Delta-G's based on fragment information from reactant and product
+    # Get data from fragment nrg files 
+    if args.fragpath == None:
+        fragpath = os.path.abspath('../../../fragments')
+    else:
+        fragpath = args.fragpath
+    formulas = []
+    nrg = []
+    zpe = []
+    entr = []
+    enth = []
+    validity = []
+    for frm in os.listdir(fragpath):
+        optdir = os.path.join(fragpath, frm, "opt")
+        if os.path.exists(os.path.join(optdir, 'fragmentopt.nrg')):
+            fragnrgfile = open(os.path.join(optdir, 'fragmentopt.nrg'))
+            formulas.append(fragnrgfile.readline().strip())
+            nrg.append(float(fragnrgfile.readline().split()[3]))
+            zpe.append(float(fragnrgfile.readline().split()[2]))
+            entr.append(float(fragnrgfile.readline().split()[3]))
+            enth.append(float(fragnrgfile.readline().split()[3]))
+            validity.append(fragnrgfile.readline().strip())
+            fragnrgfile.close()
+    #Compare list of molecules to choose right energy
+    formulasR = []
+    formulasP = []
+    nrgR = 0.0
+    nrgP = 0.0
+    R.build_topology()
+    for subg in R.molecules:
+        formulasR.append(subg.ef())
+    formulasR = sorted(formulasR)
+    P.build_topology()
+    for subg in P.molecules:
+        formulasP.append(subg.ef())
+    formulasP = sorted(formulasP)
+    for i in range(len(formulas)):
+        formlist = sorted(formulas[i].split())
+        if formlist == formulasR and validity[i] != "invalid":
+            nrgR = nrg[i]
+            zpeR = zpe[i]
+            entrR = entr[i]
+            enthR = enth[i]
+        if formlist == formulasP and validity[i] != "invalid":
+            nrgP = nrg[i]
+            zpeP = zpe[i]
+            entrP = entr[i]
+            enthP = enth[i]
+    # Calculate energetics
+    if nrgR != 0.0:
+        Ha = T.qm_energies[0]*Ha_to_kcalmol + T.qm_zpe[0] - nrgR*Ha_to_kcalmol - zpeR
+        Ga = Ha - T.qm_entropy[0]*0.29815 + T.qm_enthalpy[0] + entrR*0.29815 - enthR
+        nrgfile.write("=> ## The following data is calculated referenced to isolated reactant and product molecules:\n")
+        nrgfile.write("=> ## Activation enthalpy H_a (0K) =         %.4f kcal/mol               ##\n" % Ha)
+        nrgfile.write("=> ## Activation Gibbs energy G_a (STP) =    %.4f kcal/mol               ##\n" % Ga)
+    else:
+        nrgfile.write("=> Reactant state could not be identified among fragment calculations\n")
+        nrgfile.write("=> No energetics referenced to isolated molecules will be calculated for this pathway\n")
+    if nrgR != 0.0 and nrgP != 0.0:
+        deltaH = nrgP*Ha_to_kcalmol + zpeP - nrgR*Ha_to_kcalmol - zpeR
+        deltaG = deltaH - entrP*0.29815 + enthP + entrR*0.29815 - enthR 
+        nrgfile.write("=> ## Delta-H(0K) =                          %.4f kcal/mol               **\n" % deltaH)
+        nrgfile.write("=> ## Delta-G(STP) =                         %.4f kcal/mol               **\n" % deltaG)
+    elif nrgP == 0.0:
+        nrgfile.write("=> Product state could not be identified among fragment calculations\n")
+        nrgfile.write("=> No reaction energies referenced to isolated molecules will be calculated for this pathway\n")
+    nrgfile.close()
     print "\x1b[1;92mIRC Success!\x1b[0m"
     tarexit()
 
