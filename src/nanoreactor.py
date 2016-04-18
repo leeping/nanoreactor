@@ -1095,22 +1095,22 @@ class Nanoreactor(Molecule):
                     InstSrl += 1
                 if HaveFnm != None:
                     outfnm = HaveFnm
-                if os.path.exists(outfnm) and not os.path.exists(outfnm.replace('.xyz','.qsz')):
+                if os.path.exists(outfnm) and not os.path.exists(outfnm.replace('.xyz','.pop')):
                     # Build a molecule object containing the corresponding charges and spin
-                    SliceQSz = deepcopy(Slices[RxnNum][Inst])
+                    SlicePop = deepcopy(Slices[RxnNum][Inst])
                     ThisIdx = SliceIndices[RxnNum][Inst]
                     ThisFrm = SliceFrames[RxnNum][Inst]
                     # Grab charges from the global trajectory
                     ThisChg = [self.Charges[iframe][ThisIdx] for iframe in ThisFrm]
                     ThisSpn = [self.Spins[iframe][ThisIdx] for iframe in ThisFrm]
                     # Assign charges to positions (for convenience)
-                    for iframe in range(len(SliceQSz)):
-                        for iatom in range(SliceQSz.na):
-                            SliceQSz.xyzs[iframe][iatom][0] = ThisChg[iframe][iatom]
-                            SliceQSz.xyzs[iframe][iatom][1] = ThisSpn[iframe][iatom]
-                            SliceQSz.xyzs[iframe][iatom][2] = 0.0
+                    for iframe in range(len(SlicePop)):
+                        for iatom in range(SlicePop.na):
+                            SlicePop.xyzs[iframe][iatom][0] = ThisChg[iframe][iatom]
+                            SlicePop.xyzs[iframe][iatom][1] = ThisSpn[iframe][iatom]
+                            SlicePop.xyzs[iframe][iatom][2] = 0.0
                     # Write charges and spins to x and y coordinates in a duplicate .xyz file
-                    SliceQSz.write(outfnm.replace('.xyz','.qsz'),ftype='xyz')
+                    SlicePop.write(outfnm.replace('.xyz','.pop'),ftype='xyz')
             if RxnSrl_ == RxnSrl: RxnSrl += 1
 
         if self.printlvl >= 0: print

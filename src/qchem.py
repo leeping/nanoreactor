@@ -538,11 +538,11 @@ class QChem(object):
         if 'QCCMD' in os.environ:
             qccmd = os.environ['QCCMD']
         else:
-            qccmd = "qchem42 -nt %i" % cores
+            qccmd = "qchem -nt %i" % cores
         # Command for serial jobs
         qc1cmd = qccmd.split()[0]
         # Command for MPI jobs
-        qcmpi = "qchem42"
+        qcmpi = "qchem"
         #qcmpi = qccmd.replace('-nt', '-np')
         # I believe this saves more scratch files from Q-Chem.
         if self.qcsave:

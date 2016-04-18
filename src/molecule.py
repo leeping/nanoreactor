@@ -725,7 +725,7 @@ def extract_int(arr, avgthre, limthre, label="value", verbose=True):
         passed = False
     return int(rounded), passed
 
-def extract_qsz(M, verbose=True):
+def extract_pop(M, verbose=True):
     """ 
     Extract our best estimate of charge and spin-z from the comments
     section of a Molecule object created with Nanoreactor.  Note that
@@ -2077,7 +2077,7 @@ class Molecule(object):
 
     def read_comm_charge_mult(self, verbose=False):
         """ Set charge and multiplicity from reading the comment line, formatted in a specific way. """
-        q, sz = extract_qsz(self, verbose=verbose)
+        q, sz = extract_pop(self, verbose=verbose)
         self.charge = q
         self.mult = abs(sz) + 1
 

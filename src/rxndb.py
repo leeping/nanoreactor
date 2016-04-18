@@ -199,7 +199,7 @@ def find_reacting_groups(m1, m2):
         # Now we have a group of reacting atoms that we can extract from the
         # pathway, but we should perform some sanity checks first.
         mjoin = m1g + m2g
-        # A bit of code copied from extract_qsz.  Verify that the reacting
+        # A bit of code copied from extract_pop.  Verify that the reacting
         # atoms have consistent charge and spin in the two passed Molecule
         # objects.  If not consistent, then we cannot extract spectator atoms.
         Chgs = np.array([sum(i) for i in mjoin.qm_mulliken_charges])
