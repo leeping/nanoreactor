@@ -477,7 +477,9 @@ class Nanoreactor(Molecule):
             if len(encode(FilledSignal)) == 1:
                 RectifiedSignal = FilledSignal
             else:
-                RectifiedSignal = Rectify(ts['raw_signal'],self.metastability,self.pcorrectemission)
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    RectifiedSignal = Rectify(ts['raw_signal'],self.metastability,self.pcorrectemission)
             if RectifiedSignal == None:
                 self.TimeSeries[gid]['signal'] = FilledSignal
             else:
