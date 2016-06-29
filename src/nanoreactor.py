@@ -300,7 +300,7 @@ class Nanoreactor(Molecule):
         self.Render = False
         # Boring molecules to be excluded from coloring (by empirical formula)
         # Note: Isomers formed later are still considered interesting.  This is a hack.
-        self.BoringFormulas = [i.upper() for i in boring]
+        self.BoringFormulas = boring[:] #[i.upper() for i in boring]
         self.BoringIsomers = []
         # Disallow certain molecules from being in the TimeSeries.
         self.DisallowedFormulas = disallow
@@ -384,7 +384,8 @@ class Nanoreactor(Molecule):
                 iidx = len(self.Isomers)
                 self.Isomers.append(G)
                 self.IsoLocks.append(False)
-            if frame == 0 and (G.ef() in self.BoringFormulas or 'ALL' in self.BoringFormulas) and G not in self.BoringIsomers:
+            # if frame == 0 and (G.ef() in self.BoringFormulas or 'ALL' in self.BoringFormulas) and G not in self.BoringIsomers:
+            if (G.ef() in self.BoringFormulas or (frame == 0 and 'ALL' in self.BoringFormulas)) and G not in self.BoringIsomers:
                 self.BoringIsomers.append(G)
             # if G not in self.Isomers:
             gid = G.AStr()+":%i" % iidx

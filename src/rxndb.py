@@ -1542,6 +1542,8 @@ class Trajectory(Calculation):
         self.dynmax = kwargs.pop('dynmax', 2000)
         # Trajectories that contain too many atoms can be excluded using this filter.
         self.atomax = kwargs.pop('atomax', 50)
+        # Do optimizations of fragments and calculate fragment-based Delta G's
+        self.doFrags = kwargs.pop('frags', False)
         # Create the fragments, structure, and pathway folders.
         self.fragmentFolder = os.path.join(self.home, 'fragments')
         self.structureFolder = os.path.join(self.home, 'structures')
@@ -1829,6 +1831,24 @@ class Trajectory(Calculation):
     def countOptimizations(self):
         return sum([calc.status == 'converged' for calc in self.Optimizations.values()]), len(self.frames)
 
+    def launchOptimizations(self):
+        # Create geometry optimizations if we haven't done so already.
+        if not hasattr(self, 'Optimizations'):
+            self.makeOptimizations()
+        # If optimizations are complete, create pathway calculations;
+        # otherwise print optimization status.  Once pathways are
+        # created, this method will no longer be called so we don't
+        # need to cycle through again.
+        else:
+            for calc in self.Optimizations.values():
+                if os.path.exists(os.path.join(calc.home, 'optimize.xyz')):
+                    complete, total = self.countOptimizations()
+                    calc.saveStatus('converged', display=(self.verbose>=2), to_disk=False, message='%i/%i complete' % (complete+1, total))
+    
+        if (len(self.Optimizations) == len(self.frames)) and all([calc.status in ['converged', 'failed'] for calc in self.Optimizations.values()]):
+            if not hasattr(self, 'Pathways'):
+                self.makePathways()
+
     def launch_(self):
         """ Main method for doing the calculation. """
         # Create initial Molecule object
@@ -1851,42 +1871,34 @@ class Trajectory(Calculation):
         if self.M.na > self.atomax:
             self.saveStatus('skip', message='Too many atoms (%i > %i ; use --atomax to increase)' % (self.M.na, self.atomax), to_disk=False)
             return
-        # Create fragment identifications if we haven't done so already.
-        if not hasattr(self, 'FragmentIDs'):
-            self.makeFragments()
-        else:
-            for calc in self.FragmentIDs.values():
-                if os.path.exists(os.path.join(calc.home, 'fragmentid.txt')):
-                    complete, total = self.countFragmentIDs()
-                    calc.saveStatus('converged', display=(self.verbose>=2), to_disk=False, message='%i/%i complete' % (complete+1, total))
-        # Optimize fragments if we haven't done so already
-        if (len(self.FragmentIDs) == len(self.frames)) and all([calc.status in ['converged', 'failed'] for calc in self.FragmentIDs.values()]):
-            if not hasattr(self, 'FragmentOpts'):
-                self.makeFragOpts()
+
+        if self.doFrags:
+            #===================================#
+            #| Leah's added code for fragments |#
+            #===================================#
+            # Create fragment identifications if we haven't done so already.
+            if not hasattr(self, 'FragmentIDs'):
+                self.makeFragments()
             else:
-                for calc in self.FragmentOpts.values():
-                    if os.path.exists(os.path.join(calc.home, 'fragmentopt.txt')):
-                        complete, total = self.countFragmentOpts()
+                for calc in self.FragmentIDs.values():
+                    if os.path.exists(os.path.join(calc.home, 'fragmentid.txt')):
+                        complete, total = self.countFragmentIDs()
                         calc.saveStatus('converged', display=(self.verbose>=2), to_disk=False, message='%i/%i complete' % (complete+1, total))
-
-        if (len(self.FragmentIDs) == len(self.frames)) and all([calc.status in ['converged', 'failed'] for calc in self.FragmentIDs.values()]):
-            if (len(self.FragmentOpts) == len(self.optlist)) and all([calc.status in ['converged', 'failed'] for calc in self.FragmentOpts.values()]):        
-                # Calculate Delta-G's of the reaction from fragments if we haven't done so already
-                if not hasattr(self, 'DeltaG'):
-                    self.calcDeltaGs()
-                # Create geometry optimizations if we haven't done so already.
-                if not hasattr(self, 'Optimizations'):
-                    self.makeOptimizations()
-                # If optimizations are complete, create pathway calculations;
-                # otherwise print optimization status.  Once pathways are
-                # created, this method will no longer be called so we don't
-                # need to cycle through again.
+            # Optimize fragments if we haven't done so already
+            if (len(self.FragmentIDs) == len(self.frames)) and all([calc.status in ['converged', 'failed'] for calc in self.FragmentIDs.values()]):
+                if not hasattr(self, 'FragmentOpts'):
+                    self.makeFragOpts()
                 else:
-                    for calc in self.Optimizations.values():
-                        if os.path.exists(os.path.join(calc.home, 'optimize.xyz')):
-                            complete, total = self.countOptimizations()
+                    for calc in self.FragmentOpts.values():
+                        if os.path.exists(os.path.join(calc.home, 'fragmentopt.txt')):
+                            complete, total = self.countFragmentOpts()
                             calc.saveStatus('converged', display=(self.verbose>=2), to_disk=False, message='%i/%i complete' % (complete+1, total))
-
-                if (len(self.Optimizations) == len(self.frames)) and all([calc.status in ['converged', 'failed'] for calc in self.Optimizations.values()]):
-                    if not hasattr(self, 'Pathways'):
-                        self.makePathways()
+    
+            if (len(self.FragmentIDs) == len(self.frames)) and all([calc.status in ['converged', 'failed'] for calc in self.FragmentIDs.values()]):
+                if (len(self.FragmentOpts) == len(self.optlist)) and all([calc.status in ['converged', 'failed'] for calc in self.FragmentOpts.values()]):        
+                    # Calculate Delta-G's of the reaction from fragments if we haven't done so already
+                    if not hasattr(self, 'DeltaG'):
+                        self.calcDeltaGs()
+                    self.launchOptimizations()
+        else:
+            self.launchOptimizations()

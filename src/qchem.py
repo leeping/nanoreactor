@@ -522,6 +522,11 @@ class QChem(object):
                     mode = "mpi"
                 if key == 'jobtype' and qcrem[key].lower() == 'freq':
                     mode = "mpi"
+        # Currently Lisa is experiencing errors like:
+        # These need to be troubleshot
+        # p0_2335:  p4_error: : 17
+        # rm_l_1_3716: rm_l_3_3764: (9.847656) net_send: could not write to fd=5, errno = 32
+        if mode == "mpi": mode = "serial"
 
         # Set commands to run Q-Chem.
         # The OMP_NUM_THREADS environment variable shall be used to determine
@@ -542,8 +547,8 @@ class QChem(object):
         # Command for serial jobs
         qc1cmd = qccmd.split()[0]
         # Command for MPI jobs
-        qcmpi = "qchem"
-        #qcmpi = qccmd.replace('-nt', '-np')
+        # qcmpi = "qchem"
+        qcmpi = qccmd.replace('-nt', '-np')
         # I believe this saves more scratch files from Q-Chem.
         if self.qcsave:
             qccmd += ' -save'
@@ -576,9 +581,15 @@ class QChem(object):
             qccmd_ = qccmd
         elif mode == "mpi":
             qccmd_ = qcmpi
+            for i in range(cores):
+                _exec("hostname >> machines", print_command=False)
+            os.environ["QCMACHINEFILE"] = "machines"
+            # with open("machines","w") as f:
+            #     print >> f, os.environ["HOSTNAME"]
             # Force BW compute node to use single processor instead of MPI.
-            if 'nid' in os.environ.get('HOSTNAME', 'None'):
-                qccmd_ = qc1cmd
+            # LPW 2016-04-18: This code may no longer be needed
+            # if 'nid' in os.environ.get('HOSTNAME', 'None'):
+            #     qccmd_ = qc1cmd
         elif mode == "serial":
             qccmd_ = qc1cmd
         try:
@@ -586,6 +597,9 @@ class QChem(object):
         except:
             tarexit.include=['*']
             tarexit(1)
+        # MPI mode creates several copies of qcdir which are not needed.
+        if mode == "mpi":
+            _exec("rm -rf %s.*" % self.qcdir)
         # Catch known Q-Chem crashes. :(
         # I've run into a lot of TCP socket errors and OpenMP segfaults on Blue Waters.
         for line in open(self.qcerr):
@@ -853,7 +867,7 @@ class QChem(object):
         """
         self.jobtype = 'fsm'
         self.remextra = OrderedDict([('fsm_nnode', nnode),
-                                     ('fsm_ngrad', 3),
+                                     ('fsm_ngrad', 6),
                                      ('fsm_mode', 2),
                                      ('fsm_opt_mode', 2)])
         self.calculate()

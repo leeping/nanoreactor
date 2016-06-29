@@ -41,6 +41,7 @@ def parse_command():
     parser.add_argument('--dynmax', type=int, default=2000, help='Maximum length of dynamics trajectory to consider')
     parser.add_argument('--atomax', type=int, default=50, help='Maximum number of atoms to consider')
     parser.add_argument('--trivial', action='store_true', help='Include energy refinement of trivial rearrangements')
+    parser.add_argument('--frags', action='store_true', help='Do fragment-based reaction energy calculations')
     parser.add_argument('--spectators', action='store_true', help='Keep spectators as part of the reaction')
     parser.add_argument('--ts_branch', action='store_true', help='Transition state calculations branch off growing string segments and run in parallel; faster but less efficient')
     args, sys.argv = parser.parse_known_args(sys.argv[1:])
@@ -83,7 +84,7 @@ def process_spins(trajectory_fnms):
                 M.write(newfilename)
                 newtrajectory_fnms.append(newfilename)
             # Move original trajectory file to *.parent and exclude it from the trajectory list
-            os.rename(trajectory_fnms[i], trajectory_fnms[i]+".parent")
+            # os.rename(trajectory_fnms[i], trajectory_fnms[i]+".parent")
         else:
             newtrajectory_fnms.append(trajectory_fnms[i])
     return newtrajectory_fnms
