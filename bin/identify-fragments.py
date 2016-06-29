@@ -96,8 +96,8 @@ def main():
         subef.append(subg.ef())
         subna.append(frag.na)
         # Determine integer charge and multiplicity.
-        ichg, chgpass = extract_int(np.array([Chg]), 0.3, 1.0, label="charge")
-        ispn, spnpass = extract_int(np.array([abs(SpnZ)]), 0.3, 1.0, label="spin-z")
+        ichg, chgpass = extract_int(np.array([Chg]), 0.5, 1.0, label="charge")
+        ispn, spnpass = extract_int(np.array([abs(SpnZ)]), 0.5, 1.0, label="spin-z")
         nproton = sum([Elements.index(i) for i in frag.elem])
         nelectron = nproton + ichg
         # If calculation is valid, append to the list of xyz/chg/mult to be calculated.
