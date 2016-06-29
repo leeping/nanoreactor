@@ -3154,6 +3154,13 @@ class Molecule(object):
                     Answer['qm_energies'].append(0.0)
                     mkchg.append([0.0 for j in mkchg[-1]])
                     mkspn.append([0.0 for j in mkchg[-1]])
+            # Q-Chem 4.4 prints out three more coordinates.
+            if FSM and (len(Answer['xyzs']) == len(Answer['qm_energies']) + 3):
+                Answer['xyzs'] = Answer['xyz'][1:]
+                for i in range(2):
+                    Answer['qm_energies'].append(0.0)
+                    mkchg.append([0.0 for j in mkchg[-1]])
+                    mkspn.append([0.0 for j in mkchg[-1]])
             if FDiff and (len(Answer['qm_energies']) == (len(Answer['xyzs'])+1)):
                 logger.info("Aligning energies because finite difference calculation prints one extra")
                 Answer['qm_energies'] = Answer['qm_energies'][:-1]
