@@ -31,13 +31,13 @@ $molecule
 $end
 
 $rem
-method              {method}
+method              {method}{pcm}
 basis               {basis}
+unrestricted        true
 symmetry            off
+sym_ignore          true
 incdft              false
 incfock             0
-sym_ignore          true
-unrestricted        true
 scf_convergence     8
 thresh              14
 $end
@@ -238,7 +238,7 @@ def get_basis(basis, molecule=None):
         ecpname = ecp.lower()
     return basisname, basissect, ecpname, ecpsect
 
-def prepare_template(docstring, fout, chg, mult, method, basis, molecule=None):
+def prepare_template(docstring, fout, chg, mult, method, basis, epsilon=None, molecule=None):
     """
     Prepare a Q-Chem template file.
 
@@ -262,8 +262,14 @@ def prepare_template(docstring, fout, chg, mult, method, basis, molecule=None):
     basisname, basissect, ecpname, ecpsect = get_basis(basis, molecule)
     # Write Q-Chem template file.
     with open(fout,'w') as f: print >> f, \
-            qcrem_default.format(chg=chg, mult=mult, method=method, basis=(basisname + '%s' % (('\necp                 %s' % ecpname) if ecpname != None else '')))
+         docstring.format(chg=chg, mult=mult, method=method, pcm=('\nsolvent_method      cosmo' if epsilon is not None else ''), basis=(basisname + '%s' % (('\necp                 %s' % ecpname) if ecpname != None else '')))
     # Print general basis and ECP sections to the Q-Chem template file.
+    if epsilon is not None:
+        with open(fout,'a') as f:
+            print >> f
+            print >> f, '$solvent'
+            print >> f, 'dielectric %f' % epsilon
+            print >> f, '$end'
     if basisname == 'gen':
         with open(fout,'a') as f:
             print >> f
@@ -1136,21 +1142,24 @@ def ProcessIRC(IRCData, xyz0=None):
         M.elem = IRCData['M'].elem
     # Get coordinates and Mulliken populations from IRCData.
     M.xyzs = IRCData['X'] if fwd else IRCData['X'][::-1]
-    M.qm_mulliken_charges = IRCData['Q'] if fwd else IRCData['Q'][::-1]
-    M.qm_mulliken_spins = IRCData['Sz'] if fwd else IRCData['Sz'][::-1]
+    if 'Q' in IRCData: M.qm_mulliken_charges = IRCData['Q'] if fwd else IRCData['Q'][::-1]
+    if 'Sz' in IRCData: M.qm_mulliken_spins = IRCData['Sz'] if fwd else IRCData['Sz'][::-1]
     # Get IRC energies in kcal/mol referenced to the initial frame.
     E = np.array(IRCData['E'] if fwd else IRCData['E'][::-1])
-    E -= E[0]
-    E *= 627.51
+    E_kc = E.copy()
+    E_kc -= E[0]
+    E_kc *= 627.51
     # The frame number of the transition state.
     iTS = (IRCData['LFwd']-1 if fwd else IRCData['LBak'])
     # Write IRC energies to comments.
-    M.comms = ["Intrinsic Reaction Coordinate: Energy = % .4f kcal/mol" % i for i in E]
+    M.comms = ["Energy = % 16.10f ; %+.4f kcal/mol" % (i, j) for i, j in zip(E, E_kc)]
     M.comms[iTS] += " (Transition State)"
     # Eliminate geometry optimization frames that go up in energy.
     selct = np.concatenate((monotonic_decreasing(E, iTS, 0)[::-1], monotonic_decreasing(E, iTS, len(M)-1)[1:]))
     M = M[selct]
     E = E[selct]
+    for i in range(len(M)):
+        M.comms[i] = "Frame %3i IRC: " % i + M.comms[i]
     # Write structures and populations.
     M.align_center()
     return M, E
@@ -1283,9 +1292,88 @@ def SpaceIRC(M, E, RMSD=True):
     for a in range(M.na):
         for i in range(3):
             xyznew[:,a,i] = np.interp(ArcMolEqual, ArcMolCumul, xyzold[:, a, i])
+    # print E[0], E[-1], max(E)
     Enew = np.interp(ArcMolEqual, ArcMolCumul, E)
-    M_EV.comms = ["Intrinsic Reaction Coordinate: Energy = % .4f kcal/mol" % i for i in Enew]
+    E_kc = 627.51*(Enew - Enew[0])
+    # print Enew[0], Enew[-1], max(Enew)
+    M_EV.comms = ["Frame %3i IRC: Energy = % 16.10f ; %+.4f kcal/mol" % (ii, i, j) for ii, (i, j) in enumerate(zip(Enew, E_kc))]
+    # M_EV.comms = ["Intrinsic Reaction Coordinate: Energy = % .4f kcal/mol" % i for i in Enew]
     M_EV.comms[np.argmax(Enew)] += " (Transition State)"
     M_EV.xyzs = list(xyznew)
     return M_EV
+
+def SpaceIRC2(M, E, RMSD=True, pause=0, sweep=0, num=0):
+    """
+    Create a Molecule object with frames spaced by 0.05 Angstrom.
+    Useful for creating smooth animations and more intuitive-looking
+    energy plots.
+
+    Parameters
+    ----------
+    M : Molecule object 
+        IRC coordinates
+    E : np.ndarray 
+        IRC energies
+    RMSD : bool
+        Use RMSD for calculating arc length, 
+        otherwise use maximum displacement.
+    
+    Returns
+    -------
+    M_EV : Molecule
+        IRC coordinates equally spaced using 0.05 Angstrom spacing.
+        Energies in comments are linearly interpolated.
+        EV stands for "equal velocity".
+    """
+    # Calculate arc length of coordinates in M
+    imax = np.argmax(E)
+
+    def space_piece(M_, E_, Emin):
+        M_EV = Molecule()
+        M_EV.elem = M.elem
+        ArcMol = arc(M_, RMSD=RMSD)
+        ArcMolCumul = np.insert(np.cumsum(ArcMol), 0, 0.0)
+        # Create linearly interpolated coordinates and energies
+        dx = 0.05 
+        npts = int(max(ArcMolCumul)/dx)
+        if npts == 0: 
+            print "\x1b[91mFailure: Path length is < %f Angstrom\x1b[0m" % dx
+            tarexit()
+        ArcMolEqual = np.linspace(0, max(ArcMolCumul), npts)
+        xyzold = np.array(M_.xyzs)
+        xyznew = np.zeros((npts, xyzold.shape[1], xyzold.shape[2]), dtype=float)
+        for a in range(M.na):
+            for i in range(3):
+                xyznew[:,a,i] = np.interp(ArcMolEqual, ArcMolCumul, xyzold[:, a, i])
+        Enew = np.interp(ArcMolEqual, ArcMolCumul, E_)
+        E_kc = 627.51*(Enew - Emin)
+        M_EV.comms = ["Energy = % 16.10f ; %+.4f kcal/mol" % (i, j) for i, j in zip(Enew, E_kc)]
+        for i in range(1, len(M_EV)-1):
+            M_EV.comms[i] += " interpolated"
+        M_EV.comms[np.argmax(Enew)] += " (Transition State)"
+        M_EV.xyzs = list(xyznew)
+        return M_EV
+
+    M1 = space_piece(M[:imax+1], E[:imax+1], E[0])[:-1]
+    M2 = space_piece(M[imax:], E[imax:], E[0])
+    for i in range(len(M1)):
+        M1.comms[i] = "Frame %3i IRC: " % i + M1.comms[i]
+    for i in range(len(M2)):
+        M2.comms[i] = "Frame %3i IRC: " % (i+len(M1)) + M2.comms[i]
+    
+    for i in range(pause):
+        M1 += M2[0]
+
+    if len(M2) < sweep or len(M1) < sweep:
+        print "Warning: Sweep is longer than one piece of the IRC"
+    vib = M2[:sweep/2+1] + M2[:sweep/2+1][::-1] + M1[-sweep/2:][::-1] + M1[-sweep/2:]
+    for i in range(num):
+        M1 += vib
+
+    return M1 + M2
+
+    # M_EV.comms = ["Intrinsic Reaction Coordinate: Energy = % .4f kcal/mol" % i for i in Enew]
+    # M_EV.comms[np.argmax(Enew)] += " (Transition State)"
+    # M_EV.xyzs = list(xyznew)
+    # return M_EV
 

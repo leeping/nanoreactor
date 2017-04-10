@@ -32,6 +32,12 @@ ColorNames = ["blue", "red", "gray", "orange", "yellow",
               "violet", "violet2", "magenta", "magenta2", "red2", 
               "red3", "orange2", "orange3"]
 
+def wildmatch(fmatch, formulas):
+    for fpat in formulas:
+        if re.sub('\?', '', fpat) == re.sub('[0-9]', '', fmatch):
+            return True
+    return False
+
 def subscripts(string):
     unicode_integers = {'0': 8320, '1': 8321, '2': 8322,
                         '3': 8323, '4': 8324, '5': 8325,
@@ -265,7 +271,7 @@ class MyG(nx.Graph):
         with open(fnm,'w') as f: f.writelines([i+'\n' for i in out])
 
 class Nanoreactor(Molecule):
-    def __init__(self, xyzin=None, qsin=None, ftype=None, stride=1, enhance=1.4, mindist=1.0, printlvl=0, boring=['all'], disallow=[], learntime=200, extract=False, frames=0, xyzout='out.xyz', metastability=0.999, pcorrectemit=0.6, saverxn=True, neutralize=False):
+    def __init__(self, xyzin=None, qsin=None, ftype=None, stride=1, enhance=1.4, mindist=1.0, printlvl=0, boring=['all'], disallow=[], learntime=200, padtime=0, extract=False, frames=0, xyzout='out.xyz', metastability=0.999, pcorrectemit=0.6, saverxn=True, neutralize=False):
         #==========================#
         #   Load in the XYZ file   #
         #==========================#
@@ -312,6 +318,10 @@ class Nanoreactor(Molecule):
         # Molecules that live for at least this long (x stride) will be colored in VMD.
         # Also, molecules that vanish for (less than) this amount of time will have their time series filled in.
         self.LearnTime = learntime
+        if padtime != 0:
+            self.PadTime = padtime
+        else:
+            self.PadTime = self.LearnTime/4
         # Hidden Markov Model settings, look at Rectify function
         self.metastability = metastability
         self.pcorrectemission = pcorrectemit
@@ -385,7 +395,8 @@ class Nanoreactor(Molecule):
                 self.Isomers.append(G)
                 self.IsoLocks.append(False)
             # if frame == 0 and (G.ef() in self.BoringFormulas or 'ALL' in self.BoringFormulas) and G not in self.BoringIsomers:
-            if (G.ef() in self.BoringFormulas or (frame == 0 and 'ALL' in self.BoringFormulas)) and G not in self.BoringIsomers:
+            if (G.ef() in self.BoringFormulas or wildmatch(G.ef(), self.BoringFormulas) 
+                or (frame == 0 and 'ALL' in self.BoringFormulas)) and G not in self.BoringIsomers:
                 self.BoringIsomers.append(G)
             # if G not in self.Isomers:
             gid = G.AStr()+":%i" % iidx
@@ -774,6 +785,7 @@ class Nanoreactor(Molecule):
         SliceIndices = []  # A list of atom indices corresponding to each saved trajectory
         SliceFrames = []   # A list of frames corresponding to each saved trajectory
         BufferTime = 0
+        PadTime = self.PadTime
         for gid, ts in self.TimeSeries.items():
             I = self.Isomers[ts['iidx']]
             S = segments(FillGaps(ts['signal'],self.LearnTime))
@@ -783,10 +795,10 @@ class Nanoreactor(Molecule):
                 if self.printlvl >= 1: print "Molecular formula:", I.ef(), "atoms:", commadash(aidx), "frames:", S
                 for s in S:
                     if (s[1]-s[0]) > self.LearnTime:
-                        Begin  = s[0] + self.LearnTime/4
-                        End    = s[1] - self.LearnTime/4
-                        Before = max(0, s[0] - + self.LearnTime/4)
-                        After  = min(self.Frames-1, s[1] + self.LearnTime/4)
+                        Begin  = s[0] + PadTime
+                        End    = s[1] - PadTime
+                        Before = max(0, s[0] - + PadTime)
+                        After  = min(self.Frames-1, s[1] + PadTime)
                         if Before < Begin:
                             #if self.printlvl >= 1: print "Looking backward to frame %i," % Before,
                             Reactant_Atoms = aidx
@@ -800,7 +812,7 @@ class Nanoreactor(Molecule):
                             while True:
                                 fidx = Begin if EndPoint else Before
                                 here = Before if EndPoint else Begin
-                                New_Reactants, gid1, newf, iso1 = self.PullAidx(fidx,Reactant_Atoms,self.LearnTime/4,fwd=EndPoint)
+                                New_Reactants, gid1, newf, iso1 = self.PullAidx(fidx,Reactant_Atoms,PadTime,fwd=EndPoint)
                                 if New_Reactants == None:
                                     if self.printlvl >= 1: print " - scanned past start of trajectory!"
                                     Reacted = False
@@ -927,7 +939,7 @@ class Nanoreactor(Molecule):
                             while True:
                                 fidx = End if EndPoint else After
                                 here = After if EndPoint else End
-                                New_Reactants, gid1, newf, iso1 = self.PullAidx(fidx,Reactant_Atoms,self.LearnTime/4,fwd=not EndPoint)
+                                New_Reactants, gid1, newf, iso1 = self.PullAidx(fidx,Reactant_Atoms,PadTime,fwd=not EndPoint)
                                 if New_Reactants == None:
                                     if self.printlvl >= 1: print " - scanned past end of trajectory!"
                                     Reacted = False

@@ -33,6 +33,8 @@ add_argument(parser, '--pcorrectemit', help='Correctness probability parameter f
              default=0.6, type=float)
 add_argument(parser, '-p', dest='printlvl', help='Print level.  1: Print out unrectified time series. 2: Print out empirical formulas as they are discovered.',
              default=0, type=int)
+# add_argument(parser, '-P', dest='padtime', help='Pad reactive trajectories by this many frames. Defaults to learntime/4.',
+#              default=0, type=int)
 add_argument(parser, '-t', dest='learntime', help='Molecules existing for at least (learntime*stride) frames are recognized and given a color.',
              default=200, type=int)
 # Default behavior is to exact reactions but not reaction products. :)

@@ -8,7 +8,7 @@ perform a growing string calculation.
 """
 
 from nanoreactor.molecule import Molecule
-from nanoreactor.qchem import tarexit, prepare_template
+from nanoreactor.qchem import tarexit, prepare_template, qcrem_default
 from nanoreactor.nifty import _exec
 import os, sys, re, shutil
 import argparse
@@ -17,18 +17,19 @@ tarexit.tarfnm = 'growing-string.tar.bz2'
 tarexit.include = ['*.xyz', 'gs*', '*.num', '*.nsb', 'GRAD*', '*.txt', '*.log']
 
 # Adjustable Settings
-qcoptions="""$rem
-jobtype             force
-exchange            {method}
-basis               {basis}
-symmetry            off
-sym_ignore          true
-unrestricted        true
-scf_guess           core
-scf_guess_mix       5
-max_scf_cycles      50
-$end
-"""
+# Not used at this time (see qcrem_default in qchem.py)
+# qcoptions="""$rem
+# jobtype             force
+# exchange            {method}
+# basis               {basis}
+# symmetry            off
+# sym_ignore          true
+# unrestricted        true
+# scf_guess           core
+# scf_guess_mix       5
+# max_scf_cycles      50
+# $end
+# """
 
 inpfile="""# This text matches exactly with baron's old code
 #
@@ -75,6 +76,7 @@ def parse_user_input():
     parser.add_argument('--charge', type=int, help='Net charge (required)')
     parser.add_argument('--mult', type=int, help='Spin multiplicity (required)')
     parser.add_argument('--method', type=str, help='Electronic structure method (required)')
+    parser.add_argument('--epsilon', type=float, help='Dielectric constant for polarizable continuum (optional)')
     parser.add_argument('--basis', type=str, help='Basis set (required)')
     parser.add_argument('--stab', action='store_true', help='Perform stability analysis before gradient calculations')
     parser.add_argument('--images', type=int, help='Number of images in the string')
@@ -85,13 +87,12 @@ def parse_user_input():
 def main():
     # Get user input.
     args = parse_user_input()
-
     M = Molecule(args.initial)
 
     # Write growing string input files.
     # Note that cycles are "throttled" to 100, because larger numbers will hit queue time limits and we lose all the work :(
     # with open("qcoptions.in",'w') as f: print >> f, qcoptions.format(method=args.method, basis=args.basis)
-    prepare_template(qcoptions, "qcoptions.in", args.charge, args.mult, args.method, args.basis, molecule=M)
+    prepare_template(qcrem_default, "qcoptions.in", args.charge, args.mult, args.method, args.basis, epsilon=args.epsilon, molecule=M)
     with open("inpfile",'w') as f: print >> f, inpfile.format(xyz=args.initial, path=os.getcwd()+'/', 
                                                               chg=args.charge, mult=args.mult, cyc=min(100, args.cycles),
                                                               npts=len(M), images=args.images)

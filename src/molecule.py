@@ -3310,7 +3310,7 @@ class Molecule(object):
                     mkspn.append([0.0 for j in mkchg[-1]])
             # Q-Chem 4.4 prints out three more coordinates.
             if FSM and (len(Answer['xyzs']) == len(Answer['qm_energies']) + 3):
-                Answer['xyzs'] = Answer['xyz'][1:]
+                Answer['xyzs'] = Answer['xyzs'][1:]
                 for i in range(2):
                     Answer['qm_energies'].append(0.0)
                     mkchg.append([0.0 for j in mkchg[-1]])
