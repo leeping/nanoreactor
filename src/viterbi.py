@@ -39,7 +39,10 @@ This is only using two threads. If you have more cores on your machine, you can
 probably do even better.
 """
 import numpy as np
-import scipy.weave
+try:
+    import scipy.weave
+except:
+    import weave
 
 
 def viterbi(signal, metastability, p_correct):

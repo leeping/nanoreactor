@@ -1,28 +1,11 @@
-#!/usr/bin/env python
-
-from collections import defaultdict
+from __future__ import division
+from collections import defaultdict, OrderedDict
 import re
-from numpy import abs
+import numpy as np
 
 # To look up a 2-tuple of (bond energy in kJ/mol / bond order in Angstrom):
 # Do BondEnergies[Elem1][Elem2][BO]
 BondEnergies = defaultdict(lambda:defaultdict(dict))
-
-# The periodic table
-PeriodicTable = {'H' : 1.0079, 'He' : 4.0026, 
-                 'Li' : 6.941, 'Be' : 9.0122, 'B' : 10.811, 'C' : 12.0107, 'N' : 14.0067, 'O' : 15.9994, 'F' : 18.9984, 'Ne' : 20.1797,
-                 'Na' : 22.9897, 'Mg' : 24.305, 'Al' : 26.9815, 'Si' : 28.0855, 'P' : 30.9738, 'S' : 32.065, 'Cl' : 35.453, 'Ar' : 39.948, 
-                 'K' : 39.0983, 'Ca' : 40.078, 'Sc' : 44.9559, 'Ti' : 47.867, 'V' : 50.9415, 'Cr' : 51.9961, 'Mn' : 54.938, 'Fe' : 55.845, 'Co' : 58.9332, 
-                 'Ni' : 58.6934, 'Cu' : 63.546, 'Zn' : 65.39, 'Ga' : 69.723, 'Ge' : 72.64, 'As' : 74.9216, 'Se' : 78.96, 'Br' : 79.904, 'Kr' : 83.8, 
-                 'Rb' : 85.4678, 'Sr' : 87.62, 'Y' : 88.9059, 'Zr' : 91.224, 'Nb' : 92.9064, 'Mo' : 95.94, 'Tc' : 98, 'Ru' : 101.07, 'Rh' : 102.9055, 
-                 'Pd' : 106.42, 'Ag' : 107.8682, 'Cd' : 112.411, 'In' : 114.818, 'Sn' : 118.71, 'Sb' : 121.76, 'Te' : 127.6, 'I' : 126.9045, 'Xe' : 131.293, 
-                 'Cs' : 132.9055, 'Ba' : 137.327, 'La' : 138.9055, 'Ce' : 140.116, 'Pr' : 140.9077, 'Nd' : 144.24, 'Pm' : 145, 'Sm' : 150.36, 
-                 'Eu' : 151.964, 'Gd' : 157.25, 'Tb' : 158.9253, 'Dy' : 162.5, 'Ho' : 164.9303, 'Er' : 167.259, 'Tm' : 168.9342, 'Yb' : 173.04, 
-                 'Lu' : 174.967, 'Hf' : 178.49, 'Ta' : 180.9479, 'W' : 183.84, 'Re' : 186.207, 'Os' : 190.23, 'Ir' : 192.217, 'Pt' : 195.078, 
-                 'Au' : 196.9665, 'Hg' : 200.59, 'Tl' : 204.3833, 'Pb' : 207.2, 'Bi' : 208.9804, 'Po' : 209, 'At' : 210, 'Rn' : 222, 
-                 'Fr' : 223, 'Ra' : 226, 'Ac' : 227, 'Th' : 232.0381, 'Pa' : 231.0359, 'U' : 238.0289, 'Np' : 237, 'Pu' : 244, 
-                 'Am' : 243, 'Cm' : 247, 'Bk' : 247, 'Cf' : 251, 'Es' : 252, 'Fm' : 257, 'Md' : 258, 'No' : 259, 
-                 'Lr' : 262, 'Rf' : 261, 'Db' : 262, 'Sg' : 266, 'Bh' : 264, 'Hs' : 277, 'Mt' : 268}
 
 ## Covalent radii from Cordero et al. 'Covalent radii revisited' Dalton Transactions 2008, 2832-2838.
 # Sodium replaced 1.66 -> 1.0.  I think ionic radii are more appropriate.
@@ -38,6 +21,23 @@ Radii = [0.31, 0.28, # H and He
          1.87, 1.75, 1.70, 1.62, 1.51, 1.44, 1.41, 1.36, 
          1.36, 1.32, 1.45, 1.46, 1.48, 1.40, 1.50, 1.50, # Fifth row elements, d and p blocks
          2.60, 2.21, 2.15, 2.06, 2.00, 1.96, 1.90, 1.87, 1.80, 1.69] # Sixth row elements
+
+# The periodic table
+
+PeriodicTable = OrderedDict([('H',1.0079),('He',4.0026),
+                             ('Li',6.941),('Be',9.0122),('B',10.811),('C',12.0107),('N',14.0067),('O',15.9994),('F',18.9984),('Ne',20.1797),
+                             ('Na',22.9897),('Mg',24.305),('Al',26.9815),('Si',28.0855),('P',30.9738),('S',32.065),('Cl',35.453),('Ar',39.948),
+                             ('K',39.0983),('Ca',40.078),('Sc',44.9559),('Ti',47.867),('V',50.9415),('Cr',51.9961),('Mn',54.938),('Fe',55.845),('Co',58.9332),
+                             ('Ni',58.6934),('Cu',63.546),('Zn',65.39),('Ga',69.723),('Ge',72.64),('As',74.9216),('Se',78.96),('Br',79.904),('Kr',83.8),
+                             ('Rb',85.4678),('Sr',87.62),('Y',88.9059),('Zr',91.224),('Nb',92.9064),('Mo',95.94),('Tc',98),('Ru',101.07),('Rh',102.9055),
+                             ('Pd',106.42),('Ag',107.8682),('Cd',112.411),('In',114.818),('Sn',118.71),('Sb',121.76),('Te',127.6),('I',126.9045),('Xe',131.293),
+                             ('Cs',132.9055),('Ba',137.327),('La',138.9055),('Ce',140.116),('Pr',140.9077),('Nd',144.24),('Pm',145),('Sm',150.36),
+                             ('Eu',151.964),('Gd',157.25),('Tb',158.9253),('Dy',162.5),('Ho',164.9303),('Er',167.259),('Tm',168.9342),('Yb',173.04),
+                             ('Lu',174.967),('Hf',178.49),('Ta',180.9479),('W',183.84),('Re',186.207),('Os',190.23),('Ir',192.217),('Pt',195.078),
+                             ('Au',196.9665),('Hg',200.59),('Tl',204.3833),('Pb',207.2),('Bi',208.9804),('Po',209),('At',210),('Rn',222),
+                             ('Fr',223),('Ra',226),('Ac',227),('Th',232.0381),('Pa',231.0359),('U',238.0289),('Np',237),('Pu',244),
+                             ('Am',243),('Cm',247),('Bk',247),('Cf',251),('Es',252),('Fm',257),('Md',258),('No',259),
+                             ('Lr',262),('Rf',261),('Db',262),('Sg',266),('Bh',264),('Hs',277),('Mt',268)])
 
 Elements = ["None",'H','He',
             'Li','Be','B','C','N','O','F','Ne',
@@ -161,9 +161,9 @@ def LookupByMass(mass):
     Deviation = 1e10
     EMatch = None
     for e, m in PeriodicTable.items():
-        if abs(mass - m) < Deviation:
+        if np.abs(mass - m) < Deviation:
             EMatch = e
-            Deviation = abs(mass - m)
+            Deviation = np.abs(mass - m)
     return EMatch
 
 def BondStrengthByLength(A, B, length, artol = 0.33, bias=0.0): 
@@ -171,6 +171,10 @@ def BondStrengthByLength(A, B, length, artol = 0.33, bias=0.0):
     # Set artol lower to get more aromatic bonds ; 0.5 means no aromatic bonds.
     Deviation = 1e10
     BOMatch = None
+    if length < 0.5: # Assume using nanometers
+        length *= 10
+    if length > 50: # Assume using picometers
+        length /= 100
     # A positive bias means a lower bond order.
     length += bias
     # Determine the bond order and the bond strength
@@ -179,11 +183,11 @@ def BondStrengthByLength(A, B, length, artol = 0.33, bias=0.0):
     for BO, Vals in BondEnergies[A][B].items():
         S = Vals[0]
         L = Vals[1]
-        Devs[BO] = abs(length-L)
-        if abs(length-L) < Deviation:
+        Devs[BO] = np.abs(length-L)
+        if np.abs(length-L) < Deviation:
             BOMatch = BO
             Strength = S
-            Deviation = abs(length-L)
+            Deviation = np.abs(length-L)
     if len(Devs.items()) >= 2:
         Spac = Devs[1] + Devs[2]
         Frac1 = Devs[1]/Spac

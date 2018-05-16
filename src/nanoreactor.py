@@ -379,7 +379,8 @@ class Nanoreactor(Molecule):
 
     def AddFrame(self, frame):
         RawG = self.MakeGraphFromXYZ(frame)
-        MolGphs = nx.connected_component_subgraphs(RawG)
+        MolGphs = [RawG.subgraph(c).copy() for c in nx.connected_components(RawG)]
+        # MolGphs = nx.connected_component_subgraphs(RawG)
         ilabels = [0 for i in range(self.na)]
         nowgids = []
         efs = []

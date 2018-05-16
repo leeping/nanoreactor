@@ -1,4 +1,5 @@
-"""@package nanoreactor.nifty Nifty functions, intended to be imported by any module within Nanoreactor.
+"""@package nanoreactor.nifty Nifty functions, intended to be imported by any module within nanoreactor.
+Note: This file was copied over from the ForceBalance package.
 
 Table of Contents:
 - I/O formatting
@@ -11,43 +12,71 @@ Table of Contents:
 Named after the mighty Sniffy Handy Nifty (King Sniffy)
 
 @author Lee-Ping Wang
-@date 12/2011
+@date 2018-03-10
 """
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
 
-from select import select
-import os, sys, re, shutil, errno
-import numpy as np
 import filecmp
 import itertools
+import os
+import re
+import shutil
+import sys
+from select import select
+
+import numpy as np
+
+# For Python 3 compatibility
+try:
+    from itertools import zip_longest as zip_longest
+except ImportError:
+    from itertools import izip_longest as zip_longest
 import threading
-import pickle
+from pickle import Pickler, Unpickler
 import tarfile
 import time
 import subprocess
-from shutil import copyfileobj
-from subprocess import PIPE, STDOUT
+import math
+import six # For six.string_types
+from subprocess import PIPE
 from collections import OrderedDict, defaultdict
 
 #================================#
 #       Set up the logger        #
 #================================#
-try: 
-    from output import *
-except: 
+try:
+    from .output import *
+except ImportError:
     from logging import *
-    logger.info("Imported the default logger\n")
+    class RawStreamHandler(StreamHandler):
+        """Exactly like output.StreamHandler except it does no extra formatting
+        before sending logging messages to the stream. This is more compatible with
+        how output has been displayed in ForceBalance. Default stream has also been
+        changed from stderr to stdout"""
+        def __init__(self, stream = sys.stdout):
+            super(RawStreamHandler, self).__init__(stream)
+
+        def emit(self, record):
+            message = record.getMessage()
+            self.stream.write(message)
+            self.flush()
+    logger=getLogger()
+    logger.handlers = [RawStreamHandler(sys.stdout)]
+    logger.setLevel(INFO)
 
 try:
     import bz2
     HaveBZ2 = True
-except:
+except ImportError:
     logger.warning("bz2 module import failed (used in compressing or decompressing pickle files)\n")
     HaveBZ2 = False
 
 try:
     import gzip
     HaveGZ = True
-except:
+except ImportError:
     logger.warning("gzip module import failed (used in compressing or decompressing pickle files)\n")
     HaveGZ = False
 
@@ -58,8 +87,19 @@ kb = 0.0083144100163
 eqcgmx = 2625.5002
 ## Q-Chem to GMX unit conversion for force
 fqcgmx = -49621.9
-## One bohr equals this many angstroms
-bohrang = 0.529177249
+# Conversion factors
+bohr2ang = 0.529177210
+ang2bohr = 1.0 / bohr2ang
+au2kcal = 627.5096080306
+kcal2au = 1.0 / au2kcal
+au2kj = 2625.5002
+kj2au = 1.0 / au2kj
+grad_au2gmx = 49614.75960959161
+grad_gmx2au = 1.0 / grad_au2gmx
+# Gradient units
+au2evang = 51.42209166566339
+evang2au = 1.0 / au2evang
+
 
 #=========================#
 #     I/O formatting      #
@@ -103,7 +143,7 @@ def pvec1d(vec1d, precision=1, format="e", loglevel=INFO):
 
 def astr(vec1d, precision=4):
     """ Write an array to a string so we can use it to key a dictionary. """
-    return ' '.join([("%% .%ie " % (precision) % i) for i in vec1d])
+    return ' '.join([("%% .%ie " % precision % i) for i in vec1d])
 
 def pmat2d(mat2d, precision=1, format="e", loglevel=INFO):
     """Printout of a 2-D matrix.
@@ -117,13 +157,13 @@ def pmat2d(mat2d, precision=1, format="e", loglevel=INFO):
         logger.log(loglevel, '\n')
 
 def grouper(iterable, n):
-    "Collect data into fixed-length chunks or blocks"
+    """Collect data into fixed-length chunks or blocks"""
     # grouper('ABCDEFG', 3, 'x') --> ABC DEF Gxx
     args = [iter(iterable)] * n
-    lzip = [[j for j in i if j != None] for i in list(itertools.izip_longest(*args))]
+    lzip = [[j for j in i if j is not None] for i in list(zip_longest(*args))]
     return lzip
 
-def encode(l): 	
+def encode(l):
     return [[len(list(group)),name] for name, group in itertools.groupby(l)]
 
 def segments(e):
@@ -176,12 +216,12 @@ def uncommadash(s):
         raise RuntimeError
     return L
 
-def natural_sort(l): 
+def natural_sort(l):
     """ Return a natural sorted list. """
     # Convert a character to a digit or a lowercase character
     convert = lambda text: int(text) if text.isdigit() else text.lower()
     # Split string into "integer" and "noninteger" fields and convert each one
-    alphanum_key = lambda key: [ convert(c) for c in re.split('([0-9]+)', key) ] 
+    alphanum_key = lambda key: [ convert(c) for c in re.split('([0-9]+)', key) ]
     # Sort strings using these keys in descending order of importance, I guess.
     return sorted(l, key = alphanum_key)
 
@@ -196,7 +236,7 @@ def printcool(text,sym="#",bold=False,color=2,ansi=None,bottom='-',minwidth=50,c
     <tt> ################# </tt>
     @param[in] sym The surrounding symbol\n
     @param[in] bold Whether to use bold print
-    
+
     @param[in] color The ANSI color:\n
     1 red\n
     2 green\n
@@ -205,16 +245,16 @@ def printcool(text,sym="#",bold=False,color=2,ansi=None,bottom='-',minwidth=50,c
     5 magenta\n
     6 cyan\n
     7 white
-    
+
     @param[in] bottom The symbol for the bottom bar
 
     @param[in] minwidth The minimum width for the box, if the text is very short
     then we insert the appropriate number of padding spaces
 
-    @return bar The bottom bar is returned for the user to print later, e.g. to mark off a 'section'    
+    @return bar The bottom bar is returned for the user to print later, e.g. to mark off a 'section'
     """
     def newlen(l):
-        return len(re.sub("\x1b\[[0-9;]*m","",line))
+        return len(re.sub("\x1b\[[0-9;]*m","",l))
     text = text.split('\n')
     width = max(minwidth,max([newlen(line) for line in text]))
     bar = ''.join([sym2 for i in range(width + 6)])
@@ -225,14 +265,14 @@ def printcool(text,sym="#",bold=False,color=2,ansi=None,bottom='-',minwidth=50,c
         if type(center) is list: c1 = center[ln]
         else: c1 = center
         if c1:
-            padleft = ' ' * ((width - newlen(line)) / 2)
+            padleft = ' ' * (int((width - newlen(line))/2))
         else:
             padleft = ''
         padright = ' '* (width - newlen(line) - len(padleft))
-        if ansi != None:
+        if ansi is not None:
             ansi = str(ansi)
             logger.info("%s| \x1b[%sm%s " % (sym, ansi, padleft)+line+" %s\x1b[0m |%s\n" % (padright, sym))
-        elif color != None:
+        elif color is not None:
             if color == 0 and bold:
                 logger.info("%s| \x1b[1m%s " % (sym, padleft) + line + " %s\x1b[0m |%s\n" % (padright, sym))
             elif color == 0:
@@ -249,7 +289,7 @@ def printcool(text,sym="#",bold=False,color=2,ansi=None,bottom='-',minwidth=50,c
     botbar = ''.join([bottom for i in range(width + 8)])
     return botbar + '\n'
 
-def printcool_dictionary(Dict,title="General options",bold=False,color=2,keywidth=25,topwidth=50,center=True,leftpad=0):
+def printcool_dictionary(Dict,title="Dictionary Keys : Values",bold=False,color=2,keywidth=25,topwidth=50,center=True,leftpad=0):
     """See documentation for printcool; this is a nice way to print out keys/values in a dictionary.
 
     The keys in the dictionary are sorted before printing out.
@@ -257,17 +297,17 @@ def printcool_dictionary(Dict,title="General options",bold=False,color=2,keywidt
     @param[in] dict The dictionary to be printed
     @param[in] title The title of the printout
     """
-    if Dict == None: return
+    if Dict is None: return
     bar = printcool(title,bold=bold,color=color,minwidth=topwidth,center=center)
     def magic_string(str):
         # This cryptic command returns a string with the number of characters specified as a variable. :P
         # Useful for printing nice-looking dictionaries, i guess.
         # print "\'%%-%is\' %% '%s'" % (keywidth,str.replace("'","\\'").replace('"','\\"'))
         return eval("\'%%-%is\' %% '%s'" % (keywidth,str.replace("'","\\'").replace('"','\\"')))
-    if isinstance(Dict, OrderedDict): 
-        logger.info('\n'.join([' '*leftpad + "%s %s " % (magic_string(str(key)),str(Dict[key])) for key in Dict if Dict[key] != None]))
+    if isinstance(Dict, OrderedDict):
+        logger.info('\n'.join([' '*leftpad + "%s %s " % (magic_string(str(key)),str(Dict[key])) for key in Dict if Dict[key] is not None]))
     else:
-        logger.info('\n'.join([' '*leftpad + "%s %s " % (magic_string(str(key)),str(Dict[key])) for key in sorted([i for i in Dict]) if Dict[key] != None]))
+        logger.info('\n'.join([' '*leftpad + "%s %s " % (magic_string(str(key)),str(Dict[key])) for key in sorted([i for i in Dict]) if Dict[key] is not None]))
     logger.info("\n%s" % bar)
 
 #===============================#
@@ -278,11 +318,13 @@ def isint(word):
 
     @param[in] word String (for instance, '123', '153.0', '2.', '-354')
     @return answer Boolean which specifies whether the string is an integer (only +/- sign followed by digits)
-    
+
     """
-    try: word = str(word)
-    except: return False
-    return re.match('^[-+]?[0-9]+$',word)
+    try:
+        word = str(word)
+    except:
+        return False
+    return re.match('^[-+]?[0-9]+$', word)
 
 def isfloat(word):
     """Matches ANY number; it can be a decimal, scientific notation, what have you
@@ -290,10 +332,11 @@ def isfloat(word):
 
     @param[in] word String (for instance, '123', '153.0', '2.', '-354')
     @return answer Boolean which specifies whether the string is any number
-    
+
     """
     try: word = str(word)
     except: return False
+    if len(word) == 0: return False
     return re.match('^[-+]?[0-9]*\.?[0-9]*([eEdD][-+]?[0-9]+)?$',word)
 
 def isdecimal(word):
@@ -301,7 +344,7 @@ def isdecimal(word):
 
     @param[in] word String (for instance, '123', '153.0', '2.', '-354')
     @return answer Boolean which specifies whether the string is a number with a decimal point
-    
+
     """
     try: word = str(word)
     except: return False
@@ -350,6 +393,61 @@ def flat(vec):
     """
     return np.array(vec).reshape(-1)
 
+def est124(val):
+    """Given any positive floating point value, return a value [124]e+xx
+    that is closest to it in the log space.
+    """
+    log = np.log10(val)
+    logint = math.floor(log)
+    logfrac = log - logint
+    log1 = 0.0
+    log2 = 0.3010299956639812
+    log4 = 0.6020599913279624
+    log10 = 1.0
+    if logfrac < 0.5*(log1+log2):
+        fac = 1.0
+    elif logfrac < 0.5*(log2+log4):
+        fac = 2.0
+    elif logfrac < 0.5*(log4+log10):
+        fac = 4.0
+    else:
+        fac = 10.0
+    return fac*10**logint
+
+def est1234568(val):
+    """Given any positive floating point value, return a value [1234568]e+xx
+    that is closest to it in the log space.  Just because I don't like seven
+    and nine.  Call me a numberist?
+    """
+    log = np.log10(val)
+    logint = math.floor(log)
+    logfrac = log - logint
+    log1 = 0.0
+    log2 = 0.3010299956639812
+    log3 = np.log10(3)
+    log4 = 0.6020599913279624
+    log5 = np.log10(5)
+    log6 = np.log10(6)
+    log8 = np.log10(8)
+    log10 = 1.0
+    if logfrac < 0.5*(log1+log2):
+        fac = 1.0
+    elif logfrac < 0.5*(log2+log3):
+        fac = 2.0
+    elif logfrac < 0.5*(log3+log4):
+        fac = 3.0
+    elif logfrac < 0.5*(log4+log5):
+        fac = 4.0
+    elif logfrac < 0.5*(log5+log6):
+        fac = 5.0
+    elif logfrac < 0.5*(log6+log8):
+        fac = 6.0
+    elif logfrac < 0.5*(log8+log10):
+        fac = 8.0
+    else:
+        fac = 10.0
+    return fac*10**logint
+
 def monotonic(arr, start, end):
     # Make sure an array is monotonically decreasing from the start to the end.
     a0 = arr[start]
@@ -372,7 +470,7 @@ def monotonic(arr, start, end):
             i -= 1
 
 def monotonic_decreasing(arr, start=None, end=None, verbose=False):
-    """ 
+    """
     Return the indices of an array corresponding to strictly monotonic
     decreasing behavior.
 
@@ -384,28 +482,28 @@ def monotonic_decreasing(arr, start=None, end=None, verbose=False):
         Starting index (first element if None)
     end : int
         Ending index (last element if None)
-    
+
     Returns
     -------
     indices : numpy.ndarray
         Selected indices
     """
-    if start == None:
+    if start is None:
         start = 0
-    if end == None:
+    if end is None:
         end = len(arr) - 1
     a0 = arr[start]
     idx = [start]
-    if verbose: print "Starting @ %i : %.6f" % (start, arr[start])
+    if verbose: print("Starting @ %i : %.6f" % (start, arr[start]))
     if end > start:
         i = start+1
-        while i <= end:
+        while i < end:
             if arr[i] < a0:
                 a0 = arr[i]
                 idx.append(i)
-                if verbose: print "Including  %i : %.6f" % (i, arr[i])
+                if verbose: print("Including  %i : %.6f" % (i, arr[i]))
             else:
-                if verbose: print "Excluding  %i : %.6f" % (i, arr[i])
+                if verbose: print("Excluding  %i : %.6f" % (i, arr[i]))
             i += 1
     if end < start:
         i = start-1
@@ -413,9 +511,9 @@ def monotonic_decreasing(arr, start=None, end=None, verbose=False):
             if arr[i] < a0:
                 a0 = arr[i]
                 idx.append(i)
-                if verbose: print "Including  %i : %.6f" % (i, arr[i])
+                if verbose: print("Including  %i : %.6f" % (i, arr[i]))
             else:
-                if verbose: print "Excluding  %i : %.6f" % (i, arr[i])
+                if verbose: print("Excluding  %i : %.6f" % (i, arr[i]))
             i -= 1
     return np.array(idx)
 
@@ -434,10 +532,10 @@ def orthogonalize(vec1, vec2):
     return vec1 - v2u*np.dot(vec1, v2u)
 
 def invert_svd(X,thresh=1e-12):
-    
-    """ 
 
-    Invert a matrix using singular value decomposition. 
+    """
+
+    Invert a matrix using singular value decomposition.
     @param[in] X The matrix to be inverted
     @param[in] thresh The SVD threshold; eigenvalues below this are not inverted but set to zero
     @return Xt The inverted matrix
@@ -490,7 +588,7 @@ def get_least_squares(x, y, w = None, thresh=1e-12):
     if n_fit > n_x:
         logger.warning("Argh? It seems like this problem is underdetermined!\n")
     # Build the weight matrix.
-    if w != None:
+    if w is not None:
         if len(w) != n_x:
             warn_press_key("The weight array length (%i) must be the same as the number of 'X' data points (%i)!" % len(w), n_x)
         w /= np.mean(w)
@@ -508,7 +606,7 @@ def get_least_squares(x, y, w = None, thresh=1e-12):
     yfit = flat(Hat * Y)
     # Return three things: the least-squares coefficients, the hat matrix (turns y into yfit), and yfit
     # We could get these all from MPPI, but I might get confused later on, so might as well do it here :P
-    return Beta, Hat, yfit, MPPI
+    return np.array(Beta).flatten(), np.array(Hat), np.array(yfit).flatten(), np.array(MPPI)
 
 #===========================================#
 #| John's statisticalInefficiency function |#
@@ -567,7 +665,7 @@ def statisticalInefficiency(A_n, B_n=None, fast=False, mintime=3, warn=True):
     # Get the length of the timeseries.
     N = A_n.shape[0]
     # Be sure A_n and B_n have the same dimensions.
-    if(A_n.shape != B_n.shape):
+    if A_n.shape != B_n.shape:
         logger.error('A_n and B_n must have same dimensions.\n')
         raise ParameterError
     # Initialize statistical inefficiency estimate with uncorrelated value.
@@ -581,7 +679,7 @@ def statisticalInefficiency(A_n, B_n=None, fast=False, mintime=3, warn=True):
     # Compute estimator of covariance of (A,B) using estimator that will ensure C(0) = 1.
     sigma2_AB = (dA_n * dB_n).mean() # standard estimator to ensure C(0) = 1
     # Trap the case where this covariance is zero, and we cannot proceed.
-    if(sigma2_AB == 0):
+    if sigma2_AB == 0:
         if warn:
             logger.warning('Sample covariance sigma_AB^2 = 0 -- cannot compute statistical inefficiency\n')
         return 1.0
@@ -591,7 +689,7 @@ def statisticalInefficiency(A_n, B_n=None, fast=False, mintime=3, warn=True):
     # is dominated by noise and indistinguishable from zero.
     t = 1
     increment = 1
-    while (t < N-1):
+    while t < N-1:
         # compute normalized fluctuation correlation function at time t
         C = sum( dA_n[0:(N-t)]*dB_n[t:N] + dB_n[0:(N-t)]*dA_n[t:N] ) / (2.0 * float(N-t) * sigma2_AB)
         # Terminate if the correlation function has crossed zero and we've computed the correlation
@@ -605,7 +703,7 @@ def statisticalInefficiency(A_n, B_n=None, fast=False, mintime=3, warn=True):
         # Increase the interval if "fast mode" is on.
         if fast: increment += 1
     # g must be at least unity
-    if (g < 1.0): g = 1.0
+    if g < 1.0: g = 1.0
     # Return the computed statistical inefficiency.
     return g
 
@@ -626,66 +724,9 @@ def multiD_statisticalInefficiency(A_n, B_n=None, fast=False, mintime=3, warn=Tr
             multiD_sI[:,col] = statisticalInefficiency(A_n[:,col], B_n[:,col], fast, mintime, warn)
     return multiD_sI
 
-#==============================#
-#|      XML Pickle stuff      |#
-#==============================#
-try:
-    from lxml import etree
-except: 
-    logger.warning("lxml module import failed (You can't use OpenMM or XML force fields)\n")
-## Pickle uses 'flags' to pickle and unpickle different variable types.
-## Here we use the letter 'x' to signify that the variable type is an XML file.
-XMLFILE='x'
-
-class Pickler_LP(pickle.Pickler):
-    """ A subclass of the python Pickler that implements pickling of _ElementTree types. """
-    def __init__(self, file, protocol=None):
-        pickle.Pickler.__init__(self, file, protocol)
-        ## The element tree is saved as a string.
-        def save_etree(self, obj):
-            try:
-                ## Convert the element tree to string.
-                String = etree.tostring(obj)
-                ## The rest is copied from the Pickler class
-                if self.bin:
-                    logger.error("self.bin is True, not sure what to do with myself\n")
-                    raw_input()
-                else:
-                    self.write(XMLFILE + repr(String) + '\n')
-                self.memoize(String)
-            except:
-                warn_once("Cannot save XML files; if using OpenMM install libxml2+libxslt+lxml.  Otherwise don't worry.")
-        try:
-            self.dispatch[etree._ElementTree] = save_etree
-        except:
-            warn_once("Cannot save XML files; if using OpenMM install libxml2+libxslt+lxml.  Otherwise don't worry.")
-
-class Unpickler_LP(pickle.Unpickler):
-    """ A subclass of the python Unpickler that implements unpickling of _ElementTree types. """
-    def __init__(self, file):
-        pickle.Unpickler.__init__(self, file)
-        def load_etree(self):
-            try:
-                ## This stuff is copied from the Unpickler class
-                rep = self.readline()[:-1]
-                for q in "\"'": # double or single quote
-                    if rep.startswith(q):
-                        if not rep.endswith(q):
-                            logger.error("insecure string pickle\n")
-                            raise ValueError
-                        rep = rep[len(q):-len(q)]
-                        break
-                else:
-                    logger.error("insecure string pickle\n")
-                    raise ValueError
-                ## The string is converted to an _ElementTree type before it is finally loaded.
-                self.append(etree.ElementTree(etree.fromstring(rep.decode("string-escape"))))
-            except:
-                warn_once("Cannot load XML files; if using OpenMM install libxml2+libxslt+lxml.  Otherwise don't worry.")
-        try:
-            self.dispatch[XMLFILE] = load_etree
-        except:
-            warn_once("Cannot load XML files; if using OpenMM install libxml2+libxslt+lxml.  Otherwise don't worry.")
+#========================================#
+#|      Loading compressed pickles      |#
+#========================================#
 
 def lp_dump(obj, fnm, protocol=0):
     """ Write an object to a zipped pickle file specified by the path. """
@@ -702,7 +743,7 @@ def lp_dump(obj, fnm, protocol=0):
         f = bz2.BZ2File(fnm, 'wb')
     else:
         f = open(fnm, 'wb')
-    Pickler_LP(f, protocol).dump(obj)
+    Pickler(f, protocol).dump(obj)
     f.close()
 
 def lp_load(fnm):
@@ -714,24 +755,33 @@ def lp_load(fnm):
     def load_uncompress():
         logger.warning("Compressed file loader failed, attempting to read as uncompressed file\n")
         f = open(fnm, 'rb')
-        answer = Unpickler_LP(f).load()
+        try:
+            answer = Unpickler(f).load()
+        except UnicodeDecodeError:
+            answer = Unpickler(f, encoding='latin1').load()
         f.close()
         return answer
 
     def load_bz2():
         f = bz2.BZ2File(fnm, 'rb')
-        answer = Unpickler_LP(f).load()
+        try:
+            answer = Unpickler(f).load()
+        except UnicodeDecodeError:
+            answer = Unpickler(f, encoding='latin1').load()
         f.close()
         return answer
 
     def load_gz():
         f = gzip.GzipFile(fnm, 'rb')
-        answer = Unpickler_LP(f).load()
+        try:
+            answer = Unpickler(f).load()
+        except UnicodeDecodeError:
+            answer = Unpickler(f, encoding='latin1').load()
         f.close()
         return answer
-        
+
     if HaveGZ:
-        try: 
+        try:
             answer = load_gz()
         except:
             if HaveBZ2:
@@ -756,7 +806,8 @@ def lp_load(fnm):
 try:
     import work_queue
 except:
-    logger.warning("Work Queue library import fail (You can't queue up jobs using Work Queue)\n")
+    pass
+    #logger.warning("Work Queue library import fail (You can't queue up jobs using Work Queue)\n")
 
 # Global variable corresponding to the Work Queue object
 WORK_QUEUE = None
@@ -772,12 +823,12 @@ def getWQIds():
     global WQIDS
     return WQIDS
 
-def createWorkQueue(wq_port, debug=True):
+def createWorkQueue(wq_port, debug=True, name='nanoreactor'):
     global WORK_QUEUE
     if debug:
         work_queue.set_debug_flag('all')
     WORK_QUEUE = work_queue.WorkQueue(port=wq_port, catalog=True, exclusive=False, shutdown=False)
-    WORK_QUEUE.specify_name('nanoreactor')
+    WORK_QUEUE.specify_name(name)
     #WORK_QUEUE.specify_keepalive_timeout(8640000)
     WORK_QUEUE.specify_keepalive_interval(8640000)
 
@@ -788,7 +839,7 @@ def destroyWorkQueue():
     WQIDS = defaultdict(list)
 
 def queue_up(wq, command, input_files, output_files, tag=None, tgt=None, verbose=True, print_time=60):
-    """ 
+    """
     Submit a job to the Work Queue.
 
     @param[in] wq (Work Queue Object)
@@ -806,19 +857,19 @@ def queue_up(wq, command, input_files, output_files, tag=None, tgt=None, verbose
         lf = os.path.join(cwd,f)
         task.specify_output_file(lf,f,cache=False)
     task.specify_algorithm(work_queue.WORK_QUEUE_SCHEDULE_FCFS)
-    if tag == None: tag = command
+    if tag is None: tag = command
     task.specify_tag(tag)
     task.print_time = print_time
     taskid = wq.submit(task)
     if verbose:
         logger.info("Submitting command '%s' to the Work Queue, %staskid %i\n" % (command, "tag %s, " % tag if tag != command else "", taskid))
-    if tgt != None:
+    if tgt is not None:
         WQIDS[tgt.name].append(taskid)
     else:
         WQIDS["None"].append(taskid)
-    
+
 def queue_up_src_dest(wq, command, input_files, output_files, tag=None, tgt=None, verbose=True, print_time=60):
-    """ 
+    """
     Submit a job to the Work Queue.  This function is a bit fancier in that we can explicitly
     specify where the input files come from, and where the output files go to.
 
@@ -838,13 +889,13 @@ def queue_up_src_dest(wq, command, input_files, output_files, tag=None, tgt=None
         # print f[0], f[1]
         task.specify_output_file(f[0],f[1],cache=False)
     task.specify_algorithm(work_queue.WORK_QUEUE_SCHEDULE_FCFS)
-    if tag == None: tag = command
+    if tag is None: tag = command
     task.specify_tag(tag)
     task.print_time = print_time
     taskid = wq.submit(task)
     if verbose:
         logger.info("Submitting command '%s' to the Work Queue, taskid %i\n" % (command, taskid))
-    if tgt != None:
+    if tgt is not None:
         WQIDS[tgt.name].append(taskid)
     else:
         WQIDS["None"].append(taskid)
@@ -857,7 +908,7 @@ def wq_wait1(wq, wait_time=10, wait_intvl=1, print_time=60, verbose=False):
         wait_time = wait_intvl
         numwaits = 1
     else:
-        numwaits = wait_time / wait_intvl
+        numwaits = int(wait_time/wait_intvl)
     for sec in range(numwaits):
         task = wq.wait(wait_intvl)
         if task:
@@ -865,11 +916,11 @@ def wq_wait1(wq, wait_time=10, wait_intvl=1, print_time=60, verbose=False):
             if verbose:
                 logger.info('A job has finished!\n')
                 logger.info('Job name = ' + task.tag + 'command = ' + task.command + '\n')
-                logger.info("status = " + task.status + '\n') 
+                logger.info("status = " + task.status + '\n')
                 logger.info("return_status = " + task.return_status)
-                logger.info("result = " + task.result) 
+                logger.info("result = " + task.result)
                 logger.info("host = " + task.hostname + '\n')
-                logger.info("execution time = " + exectime) 
+                logger.info("execution time = " + exectime)
                 logger.info("total_bytes_transferred = " + task.total_bytes_transferred + '\n')
             if task.result != 0:
                 oldid = task.id
@@ -900,13 +951,13 @@ def wq_wait1(wq, wait_time=10, wait_intvl=1, print_time=60, verbose=False):
 
         Complete = wq.stats.total_tasks_complete
         Total = wq.stats.total_tasks_dispatched
-            
+
         if verbose:
             logger.info("Workers: %i init, %i ready, %i busy, %i total joined, %i total removed\n" \
                 % (wq.stats.workers_init, wq.stats.workers_ready, nbusy, wq.stats.total_workers_joined, wq.stats.total_workers_removed))
             logger.info("Tasks: %i running, %i waiting, %i total dispatched, %i total complete\n" \
                 % (wq.stats.tasks_running,wq.stats.tasks_waiting,Total,Complete))
-            logger.info("Data: %i / %i kb sent/received\n" % (wq.stats.total_bytes_sent/1000, wq.stats.total_bytes_received/1024))
+            logger.info("Data: %i / %i kb sent/received\n" % (int(wq.stats.total_bytes_sent/1000), int(wq.stats.total_bytes_received/1024)))
         else:
             logger.info("\r%s : %i/%i workers busy; %i/%i jobs complete\r" %\
             (time.ctime(), nbusy, (wq.stats.total_workers_joined - wq.stats.total_workers_removed), Complete, Total))
@@ -938,7 +989,7 @@ def bak(path, dest=None):
         dnm, fnm = os.path.split(path)
         if dnm == '' : dnm = '.'
         base, ext = os.path.splitext(fnm)
-        if dest == None:
+        if dest is None:
             dest = dnm
         if not os.path.isdir(dest): os.makedirs(dest)
         i = 1
@@ -957,13 +1008,13 @@ def bak(path, dest=None):
 # the extension.  If so, return the file name.
 # 3) If list is still empty and err==True, then crash with an error.
 def onefile(fnm=None, ext=None, err=False):
-    if fnm == None and ext == None:
+    if fnm is None and ext is None:
         if err:
             logger.error("Must provide either filename or extension to onefile()")
             raise RuntimeError
         else:
             return None
-    if fnm != None:
+    if fnm is not None:
         if os.path.exists(fnm):
             if os.path.dirname(os.path.abspath(fnm)) != os.getcwd():
                 fsrc = os.path.abspath(fnm)
@@ -982,10 +1033,10 @@ def onefile(fnm=None, ext=None, err=False):
                     logger.info("\x1b[93monefile() will copy %s to %s\x1b[0m\n" % (os.path.abspath(fnm), os.getcwd()))
                     shutil.copy2(fsrc, fdest)
             return os.path.basename(fnm)
-        elif (err==True or ext==None):
+        elif err==True or ext is None:
             logger.error("File specified by %s does not exist!" % fnm)
             raise RuntimeError
-        elif ext != None:
+        elif ext is not None:
             warn_once("File specified by %s does not exist - will try to autodetect .%s extension" % (fnm, ext))
     answer = None
     cwd = os.getcwd()
@@ -995,7 +1046,7 @@ def onefile(fnm=None, ext=None, err=False):
             logger.error("Cannot find a unique file with extension .%s in %s (%i found; %s)" % (ext, cwd, len(ls), ' '.join(ls)))
             raise RuntimeError
         else:
-            warn_once("Cannot find a unique file with extension .%s in %s (%i found; %s)" % 
+            warn_once("Cannot find a unique file with extension .%s in %s (%i found; %s)" %
                       (ext, cwd, len(ls), ' '.join(ls)), warnhash = "Found %i .%s files" % (len(ls), ext))
     else:
         answer = os.path.basename(ls[0])
@@ -1005,28 +1056,32 @@ def onefile(fnm=None, ext=None, err=False):
 # Purpose: Given a file name / file list and/or an extension, do one of the following:
 # 1) If provided a file list, check each file in the list
 # and crash if any file does not exist.  Return the list.
-# 2) If provided a file name, check the file and crash if the file 
+# 2) If provided a file name, check the file and crash if the file
 # does not exist.  Return a length-one list with the file name.
 # 3) If list is empty but extension is provided, check for files that
 # match the extension.  If so, append them to the list.
 # 4) If list is still empty and err==True, then crash with an error.
-def listfiles(fnms=None, ext=None, err=False):
+def listfiles(fnms=None, ext=None, err=False, dnm=None):
     answer = []
+    cwd = os.path.abspath(os.getcwd())
+    if dnm is not None:
+        os.chdir(dnm)
     if isinstance(fnms, list):
         for i in fnms:
             if not os.path.exists(i):
                 logger.error('Specified %s but it does not exist' % i)
                 raise RuntimeError
             answer.append(i)
-    elif isinstance(fnms, str):
+    elif isinstance(fnms, six.string_types):
         if not os.path.exists(fnms):
             logger.error('Specified %s but it does not exist' % fnms)
             raise RuntimeError
         answer = [fnms]
-    elif fnms != None:
+    elif fnms is not None:
+        print(fnms)
         logger.error('First argument to listfiles must be a list, a string, or None')
         raise RuntimeError
-    if answer == [] and ext != None:
+    if answer == [] and ext is not None:
         answer = [os.path.basename(i) for i in os.listdir(os.getcwd()) if i.endswith('.%s' % ext)]
     if answer == [] and err:
         logger.error('listfiles function failed to come up with a file! (fnms = %s ext = %s)' % (str(fnms), str(ext)))
@@ -1051,16 +1106,17 @@ def listfiles(fnms=None, ext=None, err=False):
                 logger.info("\x1b[93monefile() will copy %s to %s\x1b[0m\n" % (os.path.abspath(fnm), os.getcwd()))
                 shutil.copy2(fsrc, fdest)
                 answer[ifnm] = os.path.basename(fnm)
+    os.chdir(cwd)
     return answer
 
 def extract_tar(tarfnm, fnms, force=False):
-    """ 
+    """
     Extract a list of files from .tar archive with any compression.
     The file is extracted to the base folder of the archive.
-    
+
     Parameters
     ----------
-    tarfnm : 
+    tarfnm :
         Name of the archive file.
     fnms : str or list
         File names to be extracted.
@@ -1075,7 +1131,7 @@ def extract_tar(tarfnm, fnms, force=False):
     if not os.path.exists(tarfnm): return
     if not tarfile.is_tarfile(tarfnm): return
     # Check type of fnms argument.
-    if isinstance(fnms, str): fnms = [fnms]
+    if isinstance(fnms, six.string_types): fnms = [fnms]
     # Load the tar file.
     arch = tarfile.open(tarfnm, 'r')
     # Extract only the files we have (to avoid an exception).
@@ -1088,7 +1144,7 @@ def extract_tar(tarfnm, fnms, force=False):
 def GoInto(Dir):
     if os.path.exists(Dir):
         if os.path.isdir(Dir): pass
-        else: 
+        else:
             logger.error("Tried to create directory %s, it exists but isn't a directory\n" % newdir)
             raise RuntimeError
     else:
@@ -1133,12 +1189,15 @@ def MissingFileInspection(fnm):
             answer += "%s\n" % specific_dct[key]
     return answer
 
-def wopen(dest):
+def wopen(dest, binary=False):
     """ If trying to write to a symbolic link, remove it first. """
     if os.path.islink(dest):
         logger.warn("Trying to write to a symbolic link %s, removing it first\n" % dest)
         os.unlink(dest)
-    return open(dest,'w')
+    if binary:
+        return open(dest,'wb')
+    else:
+        return open(dest,'w')
 
 def LinkFile(src, dest, nosrcok = False):
     if os.path.abspath(src) == os.path.abspath(dest): return
@@ -1149,7 +1208,7 @@ def LinkFile(src, dest, nosrcok = False):
             os.symlink(src, dest)
         elif os.path.exists(dest):
             if os.path.islink(dest): pass
-            else: 
+            else:
                 logger.error("Tried to create symbolic link %s to %s, destination exists but isn't a symbolic link\n" % (src, dest))
                 raise RuntimeError
         else:
@@ -1158,12 +1217,12 @@ def LinkFile(src, dest, nosrcok = False):
         if not nosrcok:
             logger.error("Tried to create symbolic link %s to %s, but source file doesn't exist%s\n" % (src,dest,MissingFileInspection(src)))
             raise RuntimeError
-    
+
 
 def CopyFile(src, dest):
     if os.path.exists(src):
         if os.path.exists(dest):
-            if os.path.islink(dest): 
+            if os.path.islink(dest):
                 logger.error("Tried to copy %s to %s, destination exists but it's a symbolic link\n" % (src, dest))
                 raise RuntimeError
         else:
@@ -1202,7 +1261,11 @@ class LineChunker(object):
         self.buf = ""
 
     def push(self, data):
-        self.buf += data
+        # Added by LPW during Py3 compatibility; ran into some trouble decoding strings such as
+        # "a" with umlaut on top.  I guess we can ignore these for now.  For some reason,
+        # Py2 never required decoding of data, I can simply add it to the wtring.
+        # self.buf += data # Old Py2 code...
+        self.buf += data.decode('utf-8')#errors='ignore')
         self.nomnom()
 
     def close(self):
@@ -1239,35 +1302,35 @@ def _exec(command, print_to_screen = False, outfnm = None, logfnm = None, stdin 
     """
 
     # Dictionary of options to be passed to the Popen object.
-    cmd_options={'shell':(type(command) is str), 'stdin':PIPE, 'stdout':PIPE, 'stderr':PIPE, 'universal_newlines':expand_cr, 'cwd':cwd}
+    cmd_options={'shell':isinstance(command, six.string_types), 'stdin':PIPE, 'stdout':PIPE, 'stderr':PIPE, 'universal_newlines':expand_cr, 'cwd':cwd}
 
     # If the current working directory is provided, the outputs will be written to there as well.
-    if cwd != None:
-        if outfnm != None:
+    if cwd is not None:
+        if outfnm is not None:
             outfnm = os.path.abspath(os.path.join(cwd, outfnm))
-        if logfnm != None:
+        if logfnm is not None:
             logfnm = os.path.abspath(os.path.join(cwd, logfnm))
 
     # "write to file" : Function for writing some characters to the log and/or output files.
     def wtf(out):
-        if logfnm != None: 
-            with open(logfnm,'a+') as f: 
-                f.write(out)
+        if logfnm is not None:
+            with open(logfnm,'ab+') as f:
+                f.write(out.encode('utf-8'))
                 f.flush()
-        if outfnm != None: 
-            with open(outfnm,'w+' if wtf.first else 'a+') as f: 
-                f.write(out)
+        if outfnm is not None:
+            with open(outfnm,'wb+' if wtf.first else 'ab+') as f:
+                f.write(out.encode('utf-8'))
                 f.flush()
         wtf.first = False
     wtf.first = True
 
     # Preserve backwards compatibility; sometimes None gets passed to stdin.
-    if stdin == None: stdin = ""
+    if stdin is None: stdin = ""
 
     if print_command:
-        logger.info("Executing process: \x1b[92m%-50s\x1b[0m%s%s%s\n" % (' '.join(command) if type(command) is list else command, 
-                                                               " Output: %s" % outfnm if outfnm != None else "", 
-                                                               " Append: %s" % logfnm if logfnm != None else "", 
+        logger.info("Executing process: \x1b[92m%-50s\x1b[0m%s%s%s\n" % (' '.join(command) if type(command) is list else command,
+                                                               " Output: %s" % outfnm if outfnm is not None else "",
+                                                               " Append: %s" % logfnm if logfnm is not None else "",
                                                                (" Stdin: %s" % stdin.replace('\n','\\n')) if stdin else ""))
         wtf("Executing process: %s%s\n" % (command, (" Stdin: %s" % stdin.replace('\n','\\n')) if stdin else ""))
 
@@ -1275,7 +1338,7 @@ def _exec(command, print_to_screen = False, outfnm = None, logfnm = None, stdin 
     p = subprocess.Popen(command, **cmd_options)
 
     # Write the stdin stream to the process.
-    p.stdin.write(stdin)
+    p.stdin.write(stdin.encode('ascii'))
     p.stdin.close()
 
     #===============================================================#
@@ -1288,16 +1351,16 @@ def _exec(command, print_to_screen = False, outfnm = None, logfnm = None, stdin 
     streams = [p.stdout, p.stderr]
     # These are functions that take chunks of lines (read) as inputs.
     def process_out(read):
-        if print_to_screen: sys.stdout.write(read)
-        if copy_stdout: 
+        if print_to_screen: sys.stdout.write(str(read.encode('utf-8')))
+        if copy_stdout:
             process_out.stdout.append(read)
             wtf(read)
     process_out.stdout = []
 
     def process_err(read):
-        if print_to_screen: sys.stderr.write(read)
+        if print_to_screen: sys.stderr.write(str(read.encode('utf-8')))
         process_err.stderr.append(read)
-        if copy_stderr: 
+        if copy_stderr:
             process_out.stdout.append(read)
             wtf(read)
     process_err.stderr = []
@@ -1309,17 +1372,49 @@ def _exec(command, print_to_screen = False, outfnm = None, logfnm = None, stdin 
             to_read, _, _ = select(streams, [], [])
             for fh in to_read:
                 if fh is p.stdout:
-                    read = fh.read(rbytes)
-                    if not read: 
-                        streams.remove(p.stdout)
-                        p.stdout.close()
-                    else: out_chunker.push(read)
+                    read_nbytes = 0
+                    read = ''.encode('utf-8')
+                    while True:
+                        if read_nbytes == 0:
+                            read += fh.read(rbytes)
+                            read_nbytes += rbytes
+                        else:
+                            read += fh.read(1)
+                            read_nbytes += 1
+                        if read_nbytes > 10+rbytes:
+                            raise RuntimeError("Failed to decode stdout from external process.")
+                        if not read:
+                            streams.remove(p.stdout)
+                            p.stdout.close()
+                            break
+                        else:
+                            try:
+                                out_chunker.push(read)
+                                break
+                            except UnicodeDecodeError:
+                                pass
                 elif fh is p.stderr:
-                    read = fh.read(rbytes)
-                    if not read: 
-                        streams.remove(p.stderr)
-                        p.stderr.close()
-                    else: err_chunker.push(read)
+                    read_nbytes = 0
+                    read = ''.encode('utf-8')
+                    while True:
+                        if read_nbytes == 0:
+                            read += fh.read(rbytes)
+                            read_nbytes += rbytes
+                        else:
+                            read += fh.read(1)
+                            read_nbytes += 1
+                        if read_nbytes > 10+rbytes:
+                            raise RuntimeError("Failed to decode stderr from external process.")
+                        if not read:
+                            streams.remove(p.stderr)
+                            p.stderr.close()
+                            break
+                        else:
+                            try:
+                                err_chunker.push(read)
+                                break
+                            except UnicodeDecodeError:
+                                pass
                 else:
                     raise RuntimeError
             if len(streams) == 0: break
@@ -1329,6 +1424,7 @@ def _exec(command, print_to_screen = False, outfnm = None, logfnm = None, stdin 
     process_out.stdout = ''.join(process_out.stdout)
     process_err.stderr = ''.join(process_err.stderr)
 
+    _exec.returncode = p.returncode
     if p.returncode != 0:
         if process_err.stderr and print_error:
             logger.warning("Received an error message:\n")
@@ -1344,18 +1440,19 @@ def _exec(command, print_to_screen = False, outfnm = None, logfnm = None, stdin 
             # sys.exit(p.returncode)
             logger.error("\x1b[1;94m%s\x1b[0m gave a return code of %i (\x1b[91mit may have crashed\x1b[0m)\n\n" % (command, p.returncode))
             raise RuntimeError
-        
+
     # Return the output in the form of a list of lines, so we can loop over it using "for line in output".
     Out = process_out.stdout.split('\n')
     if Out[-1] == '':
         Out = Out[:-1]
     return Out
+_exec.returncode = None
 
 def warn_press_key(warning, timeout=10):
     logger.warning(warning + '\n')
     if sys.stdin.isatty():
         logger.warning("\x1b[1;91mPress Enter or wait %i seconds (I assume no responsibility for what happens after this!)\x1b[0m\n" % timeout)
-        try: 
+        try:
             rlist, wlist, xlist = select([sys.stdin], [], [], timeout)
             if rlist:
                 sys.stdin.readline()
@@ -1363,7 +1460,7 @@ def warn_press_key(warning, timeout=10):
 
 def warn_once(warning, warnhash = None):
     """ Prints a warning but will only do so once in a given run. """
-    if warnhash == None:
+    if warnhash is None:
         warnhash = warning
     if warnhash in warn_once.already:
         return
@@ -1394,11 +1491,10 @@ def concurrent_map(func, data):
     def task_wrapper(i):
         result[i] = func(data[i])
 
-    threads = [threading.Thread(target=task_wrapper, args=(i,)) for i in xrange(N)]
+    threads = [threading.Thread(target=task_wrapper, args=(i,)) for i in range(N)]
     for t in threads:
         t.start()
     for t in threads:
         t.join()
 
     return result
-
