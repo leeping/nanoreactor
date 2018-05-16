@@ -91,22 +91,25 @@ def window_smooth(signal, window_len=11, window='flat'):
     if window_len < 3:
         return signal
 
-    if not window in ['flat', 'hanning', 'hamming', 'bartlett', 'blackman']:
+    if not window in ['flat', 'hanning', 'hamming', 'bartlett', 'blackman', 'trivial']:
         raise ValueError("Window is on of 'flat', 'hanning', 'hamming', "
-                         "'bartlett', 'blackman'")
+                         "'bartlett', 'blackman', 'trivial'")
 
     # this does a mirroring padding
     padded = np.r_[2*signal[0] - signal[window_len-1: 0: -1],
                    signal,
                    2*signal[-1] - signal[-2: -window_len-1: -1]]
 
-    if window == 'flat':
-        w = np.ones(window_len, 'd')
+    if window == 'trivial':
+        output = np.linspace(signal[0], signal[-1], len(signal))
+        return output
     else:
-        w = getattr(np, window)(window_len)
-    output = np.convolve(w / w.sum(), padded, mode='valid')
-    
-    return output[(window_len/2):-(window_len/2)]
+        if window == 'flat':
+            w = np.ones(window_len, 'd')
+        else:
+            w = getattr(np, window)(window_len)
+        output = np.convolve(w / w.sum(), padded, mode='valid')
+        return output[(window_len/2):-(window_len/2)]
 
 
 def buttersworth_smooth(signal, width=11, order=3):

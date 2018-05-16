@@ -94,6 +94,9 @@ def smooth_internal(xyzlist, atom_names, width, allpairs=False, w_morse=0.0, rep
     for i in xrange(bonds.shape[1]):
         #s_bonds[:, i] = buttersworth_smooth(bonds[:, i], width=bond_width)
         s_bonds[:, i] = window_smooth(bonds[:, i], window_len=bond_width, window=window)
+        if i == 0:
+            print "LPW", bonds[:, i], s_bonds[:,i], window, bond_width
+                
     for i in xrange(angles.shape[1]):
         #s_angles[:, i] = buttersworth_smooth(angles[:, i], width=angle_width)
         s_angles[:, i] = window_smooth(angles[:, i], window_len=angle_width, window=window)
