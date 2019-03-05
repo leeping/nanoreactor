@@ -16,6 +16,7 @@ import contact
 import itertools
 import time
 from viterbi import viterbi, _viterbi, viterbi_skl
+from pkg_resources import parse_version
 try:
     from sklearn.hmm import MultinomialHMM
     have_sklearn = 1
@@ -306,10 +307,10 @@ class Nanoreactor(Molecule):
         self.Render = False
         # Boring molecules to be excluded from coloring (by empirical formula)
         # Note: Isomers formed later are still considered interesting.  This is a hack.
-        self.BoringFormulas = boring[:] #[i.upper() for i in boring]
-        self.BoringIsomers = []
+        self.BoringFormulas = set(boring)
+        self.BoringIsomerIdxs = set()
         # Disallow certain molecules from being in the TimeSeries.
-        self.DisallowedFormulas = disallow
+        self.DisallowedFormulas = set(disallow)
         if printlvl >= 1: print self.DisallowedFormulas, "is disallowed"
         # The print level (control the amount of printout)
         self.printlvl = printlvl
@@ -339,6 +340,8 @@ class Nanoreactor(Molecule):
         self.TimeSeries = OrderedDict()
         # List of unique isomers.
         self.Isomers = []
+        # Dictionary that aggregate isomers
+        self.isomer_ef_iidx_dict = defaultdict(list)
         # Set of isomers that are RECORDED.
         self.Recorded = set()
         # A time-series of atom-wise isomer labels.
@@ -387,23 +390,28 @@ class Nanoreactor(Molecule):
         bonds = [[] for i in range(self.na)]
         NumMols = 0
         for G in MolGphs:
+            G.__class__ = MyG
+            G.Alive = True
             NumMols += 1
+            ef = G.ef()
             # iidx means Isomer Index.
-            try:
-                iidx = self.Isomers.index(G)
-            except:
+            # compare to the Graph that has the same Empirical Formula
+            for i in self.isomer_ef_iidx_dict[ef]:
+                if self.Isomers[i] == G:
+                    iidx = i
+                    break
+            else:
                 iidx = len(self.Isomers)
                 self.Isomers.append(G)
+                self.isomer_ef_iidx_dict[ef].append(iidx)
                 self.IsoLocks.append(False)
-            # if frame == 0 and (G.ef() in self.BoringFormulas or 'ALL' in self.BoringFormulas) and G not in self.BoringIsomers:
-            if (G.ef() in self.BoringFormulas or wildmatch(G.ef(), self.BoringFormulas) 
-                or (frame == 0 and 'ALL' in self.BoringFormulas)) and G not in self.BoringIsomers:
-                self.BoringIsomers.append(G)
+            if (ef in self.BoringFormulas or wildmatch(ef, self.BoringFormulas) or (frame == 0 and 'ALL' in [i.upper() for i in self.BoringFormulas])):
+                self.BoringIsomerIdxs.add(iidx)
             # if G not in self.Isomers:
             gid = G.AStr()+":%i" % iidx
             nowgids.append(gid)
-            efs.append(G.ef())
-            if gid not in self.TimeSeries and G.ef() not in self.DisallowedFormulas:
+            efs.append(ef)
+            if gid not in self.TimeSeries and ef not in self.DisallowedFormulas:
                 self.TimeSeries[gid] = {'graph':G,'iidx':iidx,'raw_signal':encode([0 for i in range(frame)]),'lock':False}
             for j in G.nodes():
                 ilabels[j] = iidx
@@ -442,11 +450,10 @@ class Nanoreactor(Molecule):
             if not self.TimeSeries[gid]['lock']:
                 # LPW note on Sep 24: I think it's unfair to require a
                 # continuous live-time before locking the graph ID.
-                # We could look at the total live-time instead. However, 
-                # this changes the results for the e-cigarette test case, 
-                # so for now we leave the code the same.
-                # if sum([i[0] for i in self.TimeSeries[gid]['raw_signal'] if i[1]]) == self.LearnTime:
-                if self.TimeSeries[gid]['raw_signal'][-1] == [self.LearnTime,True]:
+                # We could look at the total live-time instead. 
+                # LPW 2019-03-04: Actually making the change.
+                if sum([i[0] for i in self.TimeSeries[gid]['raw_signal'] if i[1]]) == self.LearnTime:
+                # if self.TimeSeries[gid]['raw_signal'][-1] == [self.LearnTime,True]:
                     if self.printlvl >= 1:
                         print "Locking  gid %s - its timeseries is" % gid, self.TimeSeries[gid]['raw_signal']
                     self.TimeSeries[gid]['lock'] = True
@@ -536,12 +543,12 @@ class Nanoreactor(Molecule):
         for i in np.argsort(BornTimes):
             I = self.Isomers[i]
             #I = ValidIso[i]
-            if self.printlvl >= 1: print "Isomer %3i %10s : Max Life %i" % (i, "("+I.ef()+")", MaxLife[i]),
+            if self.printlvl >= 1 and MaxLife[i] > 0: print "Isomer %3i %10s : Max Life %i" % (i, "("+I.ef()+")", MaxLife[i]),
             # if I.ef() in self.BoringFormulas:
-            if I in self.BoringIsomers:
+            if i in self.BoringIsomerIdxs:
                 self.Recorded.add(i)
                 ColorIdx[i] = 8
-                if self.printlvl >= 1: print "(Boring!)"
+                if self.printlvl >= 1 and MaxLife[i] > 0: print "(Boring!)"
             elif MaxLife[i] == 0:
                 if self.printlvl >= 0: print "\r",
             elif MaxLife[i] < self.LearnTime:
@@ -621,19 +628,19 @@ class Nanoreactor(Molecule):
             if frame < 0 or frame >= self.Frames:
                 return None, None, None, None
 
-    def WriteChargeSpinLabels(self):
-        Threshold = 0.1
-        ChargeLabels = [[] for i in range(len(self))]
+    def WriteChargeSpinLabels(self, selection):
+        Threshold = 0.25
+        ChargeLabels = [[] for i in selection]
         #print self.Recorded
         RecSeries = {}
         for gid,ts in self.TimeSeries.items(): # Loop over graph IDs and time series
             if ts['iidx'] in self.Recorded:
                 RecSeries[gid] = ts
-                
+
         for gid,ts in RecSeries.items():
             idx = np.array(ts['graph'].L())
             decoded = decode(ts['signal'])
-            for i in range(len(self)):
+            for i in selection:
                 if decoded[i]:
                     ChgArr = np.array(self.Charges[i][idx])
                     SumChg = sum(ChgArr)
@@ -656,7 +663,7 @@ class Nanoreactor(Molecule):
 
         Threshold = 0.25
         sout = open('spin.dat','w')
-        for i in range(len(self)):
+        for i in selection:
             for a in range(self.na):
                 if abs(self.Spins[i][a]) >= Threshold:
                     print >> sout, "%i %+.2f" % (a, self.Spins[i][a]),
@@ -788,11 +795,12 @@ class Nanoreactor(Molecule):
         BufferTime = 0
         PadTime = self.PadTime
         for gid, ts in self.TimeSeries.items():
-            I = self.Isomers[ts['iidx']]
+            iidx = ts['iidx']
+            I = self.Isomers[iidx]
             S = segments(FillGaps(ts['signal'],self.LearnTime))
             if self.printlvl >= 1: print "Original and Condensed Segments:", segments(ts['signal']), S
             aidx = ts['graph'].L()
-            if I not in self.BoringIsomers and len(S) > 0:
+            if iidx not in self.BoringIsomerIdxs and len(S) > 0:
                 if self.printlvl >= 1: print "Molecular formula:", I.ef(), "atoms:", commadash(aidx), "frames:", S
                 for s in S:
                     if (s[1]-s[0]) > self.LearnTime:
@@ -1104,6 +1112,7 @@ class Nanoreactor(Molecule):
                     # LPW: All of the repeated reaction.xyz files are getting annoying!
                     if InstSrl < 10:
                         if self.printlvl >= 0: print "\x1b[1;92mSaving\x1b[0m frames %i -> %i to %s" % (Firsts[RxnNum][Inst], Lasts[RxnNum][Inst], outfnm)
+                        Slices[RxnNum][Inst].center()
                         Slices[RxnNum][Inst].write(outfnm)
                     elif self.printlvl >= 0: print "\x1b[1;93mNot Saving\x1b[0m frames %i -> %i (instance %i)" % (Firsts[RxnNum][Inst], Lasts[RxnNum][Inst], InstSrl)
                     InstSrl += 1
@@ -1190,8 +1199,16 @@ mol modstyle %i 0 VDW 0.150000 27.000000
         lengths = []
         for i, a in enumerate(self.elem):
             G.add_node(i)
-            nx.set_node_attributes(G,'e',{i:a})
-            nx.set_node_attributes(G,'x',{i:self.xyzs[sn][i]})
+            if parse_version(nx.__version__) >= parse_version('2.0'):
+                if 'atomname' in self.Data:
+                    nx.set_node_attributes(G,{i:self.atomname[i]}, name='n')
+                nx.set_node_attributes(G,{i:a}, name='e')
+                nx.set_node_attributes(G,{i:self.xyzs[sn][i]}, name='x')
+            else:
+                if 'atomname' in self.Data:
+                    nx.set_node_attributes(G,'n',{i:self.atomname[i]})
+                nx.set_node_attributes(G,'e',{i:a})
+                nx.set_node_attributes(G,'x',{i:self.xyzs[sn][i]})
         bond_bool = self.dxij[0] < self.BondThresh
         for i, a in enumerate(bond_bool):
             if not a: continue
@@ -1218,9 +1235,9 @@ mol modstyle %i 0 VDW 0.150000 27.000000
                     self.fout = user_input.strip()
             print "Writing", self.fout
             try:
-                self.write(self.fout, select=range(0,self.Frames,self.stride))
+                self.write(self.fout, selection=range(0,self.Frames,self.stride))
             except:
                 print "File write failed, check what you typed in."
                 self.fout = self.fnm
-        self.WriteChargeSpinLabels()
+        self.WriteChargeSpinLabels(range(0,self.Frames,self.stride))
 
