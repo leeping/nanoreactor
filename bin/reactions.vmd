@@ -233,12 +233,12 @@ proc do_coloring {args} {
                 graphics top color 16
                 graphics top text [vecadd $cen [vecscale $ex [expr $rad*0.2]]] $qqs size [expr $ssaq*1.2] thickness [expr $ssaq*4]
                 graphics top text [vecadd $cen [vecscale $ex [expr $rad*0.7]]] $qqq size [expr $ssaq*1.2] thickness [expr $ssaq*4]
-		if {$q < 0} then {
-                    graphics top color 23
-                } else {
-                    graphics top color 1
-                }
-                vmd_draw_circle top [vecadd [vecadd $cen [vecscale $ex [expr $rad*0.85]]] [vecscale $ey [expr $rad*0.05]]] $ex $ey $rad 24 [expr round($ssaq*3)]
+		# if {$q < 0} then {
+                #     graphics top color 23
+                # } else {
+                #     graphics top color 1
+                # }
+                # vmd_draw_circle top [vecadd [vecadd $cen [vecscale $ex [expr $rad*0.85]]] [vecscale $ey [expr $rad*0.05]]] $ex $ey $rad 24 [expr round($ssaq*3)]
             }
         }
     }
