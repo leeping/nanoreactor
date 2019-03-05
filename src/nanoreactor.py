@@ -629,6 +629,7 @@ class Nanoreactor(Molecule):
                 return None, None, None, None
 
     def WriteChargeSpinLabels(self, selection):
+        # LPW 2019-03-04 Increasing threshold to 0.25 de-clutters visualization
         Threshold = 0.25
         ChargeLabels = [[] for i in selection]
         #print self.Recorded
