@@ -174,7 +174,7 @@ def least_squares_cartesian(bonds, ibonds, angles, iangles, dihedrals,
 
         return g
 
-    if xref != None:
+    if xref is not None:
         xrefi = xyz_to_independent_vars(xref)
     else:
         xrefi = None
@@ -188,7 +188,7 @@ def least_squares_cartesian(bonds, ibonds, angles, iangles, dihedrals,
     def fgrad(x, indicate = False):
         """ Calculate the objective function and its derivatives. """
         # If the optimization algorithm tries to calculate twice for the same point, do nothing.
-        if x == fgrad.x0: return
+        if (x == fgrad.x0).all(): return
 
         xyz = independent_vars_to_xyz(x)
         # these methods require 3d input
@@ -216,7 +216,7 @@ def least_squares_cartesian(bonds, ibonds, angles, iangles, dihedrals,
 
         # Construct the least squares error vector.
         # Include an optional term if we have an anchor point.
-        if xrefi != None:
+        if xrefi is not None:
             d4 = (x - xrefi).flatten() * w1 * w_xref
             if w_morse != 0.0:
                 fgrad.error = np.r_[d1, d2, np.arctan2(np.sin(d3), np.cos(d3)), d4, EMorse2]
@@ -235,18 +235,18 @@ def least_squares_cartesian(bonds, ibonds, angles, iangles, dihedrals,
         d1s = np.dot(d1, d1)
         d2s = np.dot(d2, d2)
         d3s = np.dot(d3, d3)
-        d4s = np.dot(d4, d4) if xrefi != None else 0.0
+        d4s = np.dot(d4, d4) if xrefi is not None else 0.0
         d5s = np.dot(EMorse2, EMorse2) if w_morse != 0.0 else 0.0
         
         if indicate: 
-            if fgrad.X0 != None:
+            if fgrad.X0 is not None:
                 print ("LSq: %.4f (%+.4f) Distance: %.4f (%+.4f) Angle: %.4f (%+.4f) Dihedral: %.4f (%+.4f)" % 
                        (fgrad.X, fgrad.X - fgrad.X0, d1s, d1s - fgrad.d1s0, d2s, d2s - fgrad.d2s0, d3s, d3s - fgrad.d3s0)), 
-                if xrefi != None: print "Anchor: %.4f (%+.4f)" % (d4s, d4s - fgrad.d4s0),
+                if xrefi is not None: print "Anchor: %.4f (%+.4f)" % (d4s, d4s - fgrad.d4s0),
                 if w_morse != 0.0: print "Morse: %.4f (%+.4f)" % (d5s, (d5s - fgrad.d5s0)),
             else:
                 print "LSq: %.4f Distance: %.4f Angle: %.4f Dihedral: %.4f" % (fgrad.X, d1s, d2s, d3s), 
-                if xrefi != None: print "Anchor: %.4f" % d4s,
+                if xrefi is not None: print "Anchor: %.4f" % d4s,
                 if w_morse != 0.0: print "Morse: %.4f" % d5s,
             print
         if fgrad.X0 == None:
@@ -263,7 +263,7 @@ def least_squares_cartesian(bonds, ibonds, angles, iangles, dihedrals,
         d_dihedrals = core.dihedral_derivs(xyz, idihedrals) * w3
         # if indicate: print d_bonds.shape, d_angles.shape, d_dihedrals.shape, np.eye(len(x)).shape, GMorse2.shape
 
-        if xrefi != None:
+        if xrefi is not None:
             # the derivatives of the internal coordinates wrt the cartesian
             # this is 2d, with shape equal to n_internal x n_cartesian
             if w_morse != 0.0:
