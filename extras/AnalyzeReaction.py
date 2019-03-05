@@ -61,7 +61,7 @@ printcool("STEP 1: Determining the charge and spin")
 M = Molecule(sys.argv[1])
 print M.comms[0].split("atoms")[0]
 
-chg, spn = extract_qsz(M)
+chg, spn = extract_pop(M)
 if chg == -999: tarexit()
 
 # This is the string from the xyz comment line that describes which atoms went to which.

@@ -41,6 +41,7 @@ def buildKeywordDictionary():
     setupKeywords["package_dir"]       = {"nanoreactor": "src"}
     setupKeywords["scripts"]           = glob.glob("bin/*.py") + glob.glob("bin/*.sh") + glob.glob("bin/*.exe")
     setupKeywords["ext_modules"]       = [CONTACT, DIHEDRAL]
+    setupKeywords["py_modules"]       = ["pypackmol"]
     setupKeywords["platforms"]         = ["Linux", "Mac OS X", "Windows"]
     setupKeywords["description"]       = "Machine learning for reactive MD."
     outputString=""
