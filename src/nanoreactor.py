@@ -179,7 +179,7 @@ def FillGaps(signal, delay):
             filled.append([chunk[0], 1])
         else:
             filled.append(chunk)
-    return filled
+    return encode(decode(filled))
 
 def bondlist_tcl(bondlist):
     # Print out the list of bonds in a format that VMD can understand.
