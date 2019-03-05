@@ -25,12 +25,18 @@ try:
 except ImportError:
     from itertools import izip_longest as zip_longest
 
+# For Python 2 backwards-compatibility
+try:
+    input = raw_input
+except NameError:
+    pass
+
 # ======================================================================#
 # |                                                                    |#
 # |              Chemical file format conversion module                |#
 # |                                                                    |#
 # |                Lee-Ping Wang (leeping@ucdavis.edu)                 |#
-# |                   Last updated April 19, 2018                      |#
+# |                     Last updated June 6, 2018                      |#
 # |                                                                    |#
 # |   This code is part of the Nanoreactor package and is covered      |#
 # |   under the copyright notice and 3-clause BSD license.             |#
@@ -2037,6 +2043,7 @@ class Molecule(object):
         self.topology = G
         # LPW: Molecule.molecules is a funny misnomer... it should be fragments or substructures or something
         self.molecules = [G.subgraph(c).copy() for c in nx.connected_components(G)]
+        for g in self.molecules: g.__class__ = MyG
         # Deprecated in networkx 2.2
         # self.molecules = list(nx.connected_component_subgraphs(G))
 
