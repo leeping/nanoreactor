@@ -35,8 +35,9 @@ ColorNames = ["blue", "red", "gray", "orange", "yellow",
 
 def wildmatch(fmatch, formulas):
     for fpat in formulas:
-        if re.sub('\?', '', fpat) == re.sub('[0-9]', '', fmatch):
+        if '?' in fpat and (re.sub('\?', '', fpat) == re.sub('[0-9]', '', fmatch)):
             return True
+        elif fpat == fmatch: return True
     return False
 
 def subscripts(string):
@@ -228,13 +229,8 @@ def make_monotonic(xyz, others=[]):
 class MyG(nx.Graph):
     def __init__(self):
         super(MyG,self).__init__()
-        self.Alive = True
     def __eq__(self, other):
         # This defines whether two MyG objects are "equal" to one another.
-        if not self.Alive:
-            return False
-        if not other.Alive:
-            return False
         return nx.is_isomorphic(self,other,node_match=nodematch)
     def __hash__(self):
         ''' The hash function is something we can use to discard two things that are obviously not equal.  Here we neglect the hash. '''
@@ -271,8 +267,14 @@ class MyG(nx.Graph):
             x -= x.mean(0)
         with open(fnm,'w') as f: f.writelines([i+'\n' for i in out])
 
+def split_gid(gid):
+    a, b = gid.split(':')
+    atoms = commadash([int(i) for i in a.split(',')])
+    iidx = b
+    return atoms, iidx
+
 class Nanoreactor(Molecule):
-    def __init__(self, xyzin=None, qsin=None, ftype=None, stride=1, enhance=1.4, mindist=1.0, printlvl=0, boring=['all'], disallow=[], learntime=200, padtime=0, extract=False, frames=0, xyzout='out.xyz', metastability=0.999, pcorrectemit=0.6, saverxn=True, neutralize=False):
+    def __init__(self, xyzin=None, qsin=None, boin=None, bothre=0.0, ftype=None, stride=1, enhance=1.4, mindist=1.0, printlvl=0, boring=['all'], disallow=[], learntime=200, padtime=0, extract=False, frames=0, xyzout='out.xyz', metastability=0.999, pcorrectemit=0.6, saverxn=True, neutralize=False, radii=[]):
         #==========================#
         #   Load in the XYZ file   #
         #==========================#
@@ -289,6 +291,32 @@ class Nanoreactor(Molecule):
         else:
             self.Charges = np.array([[0 for i in range(self.na)] for j in range(len(self))])
             self.Spins = np.array([[0 for i in range(self.na)] for j in range(len(self))])
+        self.BOMat = []
+        self.BOThre = bothre
+        self.BO = False
+        if boin != None and os.path.exists(boin) and bothre > 0.0:
+            self.BO = True
+            if printlvl >= 0:
+                print "Loading pairwise bond orders...",
+            boMode = 0
+            for ln, line in enumerate(open(boin).readlines()):
+                if boMode == 0:
+                    nbo = int(line.strip())
+                    boLine = ln
+                    boMode = 1
+                    boMat = np.zeros((self.na, self.na), dtype=float)
+                elif boMode == 1:
+                    if ln > boLine+1:
+                        s = line.split()
+                        a1 = int(s[0])
+                        a2 = int(s[1])
+                        bo = float(s[2])
+                        boMat[a1, a2] = bo
+                        boMat[a2, a1] = bo
+                        if ln == boLine+nbo+1:
+                            boMode = 0
+                            self.BOMat.append(boMat.copy())
+                        
         if printlvl >= 0: print "Done"
         #==========================#
         #         Settings         #
@@ -334,6 +362,12 @@ class Nanoreactor(Molecule):
         # If the number of frames is too big, reduce it here
         if self.Frames > self.ns:
             self.Frames = self.ns
+        # Replace default radii with custom radii.
+        for i in range(0, len(radii), 2):
+            atom_symbol = radii[i]
+            custom_rad = float(radii[i+1])
+            Radii[Elements.index(atom_symbol)-1] = custom_rad
+            print "Custom covalent radius for %2s : %.3f" % (atom_symbol, custom_rad) 
         # Create an atom-wise list of covalent radii.
         R = np.array([(Radii[Elements.index(i)-1] if i in Elements else 0.0) for i in self.elem])
         # Dictionary of how long each molecule lives.
@@ -346,11 +380,10 @@ class Nanoreactor(Molecule):
         self.Recorded = set()
         # A time-series of atom-wise isomer labels.
         self.IsoLabels = []
-        self.IsoLocks = []
         # A time series of VMD-formatted bond specifications.
         self.BondLists = []
         # A time series of lists of bond lengths.
-        self.BondLengths = []
+        # self.BondLengths = []
         # A time series of the number of molecules.
         self.NumMols = []
         # Robert's testing stuff for the Viterbi algorithm.
@@ -363,9 +396,13 @@ class Nanoreactor(Molecule):
         self.BondThresh = np.array([max(mindist,(R[i[0]] + R[i[1]]) * self.Fac) for i in self.AtomIterator])
         # Build graphs from the distance matrices (this is the bottleneck)
         if self.printlvl >= 0: print "Building graphs..."
+        t0 = time.time()
         for i in range(0, self.Frames, self.stride):
-            self.dxij = contact.atom_distances(np.array([self.xyzs[i]]),self.AtomIterator)
+            if not self.BO: self.dxij = contact.atom_distances(np.array([self.xyzs[i]]),self.AtomIterator)
             if self.printlvl >= 0: print "\rFrame %-7i:" % i,
+            if self.printlvl >= 1 and i>0 and i%1000==0:
+                print("%.2f s for past 1000 frames, %i isomers" % (time.time() - t0, len(self.TimeSeries)))
+                t0 = time.time()
             self.AddFrame(i)
         if self.printlvl >= 0: print
         if self.printlvl >= 0: print "Done building graphs."
@@ -391,7 +428,6 @@ class Nanoreactor(Molecule):
         NumMols = 0
         for G in MolGphs:
             G.__class__ = MyG
-            G.Alive = True
             NumMols += 1
             ef = G.ef()
             # iidx means Isomer Index.
@@ -404,7 +440,6 @@ class Nanoreactor(Molecule):
                 iidx = len(self.Isomers)
                 self.Isomers.append(G)
                 self.isomer_ef_iidx_dict[ef].append(iidx)
-                self.IsoLocks.append(False)
             if (ef in self.BoringFormulas or wildmatch(ef, self.BoringFormulas) or (frame == 0 and 'ALL' in [i.upper() for i in self.BoringFormulas])):
                 self.BoringIsomerIdxs.add(iidx)
             # if G not in self.Isomers:
@@ -412,7 +447,7 @@ class Nanoreactor(Molecule):
             nowgids.append(gid)
             efs.append(ef)
             if gid not in self.TimeSeries and ef not in self.DisallowedFormulas:
-                self.TimeSeries[gid] = {'graph':G,'iidx':iidx,'raw_signal':encode([0 for i in range(frame)]),'lock':False}
+                self.TimeSeries[gid] = {'graph':G,'iidx':iidx,'raw_signal':encode([0 for i in range(frame)])}
             for j in G.nodes():
                 ilabels[j] = iidx
         if self.printlvl >= 3:
@@ -445,28 +480,60 @@ class Nanoreactor(Molecule):
                 self.GidSets.append(GidSet)
             self.CodeBook.append(code)
 
-        for gid in self.TimeSeries:
-            self.TimeSeries[gid]['raw_signal'] = append_e(self.TimeSeries[gid]['raw_signal'], 1 if gid in nowgids else 0)
-            if not self.TimeSeries[gid]['lock']:
-                # LPW note on Sep 24: I think it's unfair to require a
-                # continuous live-time before locking the graph ID.
-                # We could look at the total live-time instead. 
-                # LPW 2019-03-04: Actually making the change.
-                if sum([i[0] for i in self.TimeSeries[gid]['raw_signal'] if i[1]]) == self.LearnTime:
-                # if self.TimeSeries[gid]['raw_signal'][-1] == [self.LearnTime,True]:
-                    if self.printlvl >= 1:
-                        print "Locking  gid %s - its timeseries is" % gid, self.TimeSeries[gid]['raw_signal']
-                    self.TimeSeries[gid]['lock'] = True
-                    self.IsoLocks[self.TimeSeries[gid]['iidx']] = True
-                if self.TimeSeries[gid]['raw_signal'][-1] == [self.LearnTime,False]:
-                    if self.IsoLocks[self.TimeSeries[gid]['iidx']] == False:
-                        if self.printlvl >= 2:
-                            print "Deleting graph from isomer index"
-                        self.Isomers[self.TimeSeries[gid]['iidx']].Alive = False
-                    if self.printlvl >= 2:
-                        print "Deleting gid %s - its timeseries is" % gid, self.TimeSeries[gid]['raw_signal']
-                    del self.TimeSeries[gid]
-        #print "There are %i isomers" % len(self.Isomers)
+        alive_gids = set(nowgids)
+        dead_gids = set(self.TimeSeries.keys()) - set(nowgids)
+
+        for gid in alive_gids:
+            ts = self.TimeSeries[gid]
+            ts['raw_signal'] = append_e(ts['raw_signal'], 1)
+            if self.printlvl >= 1 and ts['raw_signal'][-1][0] == self.LearnTime:
+                atom_str, iidx_str = split_gid(gid)
+                ef_str = ts['graph'].ef()
+                ts_str = ''.join([(u"/\u203E%i\u203E\\" % t[0]) if t[1] else ('_%i_' % t[0]) for t in ts['raw_signal']])
+                print (u"Up time   %i  : formula %s index %s atoms %s series %s" % (self.LearnTime, ef_str, iidx_str, atom_str, ts_str)).encode('utf-8')
+                
+            
+        for gid in dead_gids:
+            ts = self.TimeSeries[gid]
+            ts['raw_signal'] = append_e(ts['raw_signal'], 0)
+            if self.printlvl >= 1 and ts['raw_signal'][-1][0] == self.LearnTime:
+                atom_str, iidx_str = split_gid(gid)
+                ef_str = ts['graph'].ef()
+                ts_str = ''.join([(u"/\u203E%i\u203E\\" % t[0]) if t[1] else ('_%i_' % t[0]) for t in ts['raw_signal']])
+                print (u"Down time %i  : formula %s index %s atoms %s series %s" % (self.LearnTime, ef_str, iidx_str, atom_str, ts_str)).encode('utf-8')
+            
+            # self.TimeSeries[gid]['raw_signal'] = append_e(self.TimeSeries[gid]['raw_signal'], 0)
+            # atom_str, iidx_str = split_gid(gid)
+            # ef_str = self.TimeSeries[gid]['graph'].ef()
+            # ts_str = ''.join([(u"/\u203E%i\u203E\\" % t[0]) if t[1] else ('_%i_' % t[0]) for t in self.TimeSeries[gid]['raw_signal']])
+            
+        # LPW 2019
+        # for gid in self.TimeSeries:
+        #     self.TimeSeries[gid]['raw_signal'] = append_e(self.TimeSeries[gid]['raw_signal'], 1 if gid in nowgids else 0)
+        #     if not self.TimeSeries[gid]['lock']:
+        #         # LPW note on Sep 24: I think it's unfair to require a
+        #         # continuous live-time before locking the graph ID.
+        #         # We could look at the total live-time instead. 
+        #         # LPW 2019-03-04: Actually making the change.
+        #         # LPW 2019-93-18: More aggressive locking of timeseries
+        #         LDFac = 4.0
+        #         if sum([i[0] for i in self.TimeSeries[gid]['raw_signal'] if i[1]]) == int(self.LearnTime/LDFac):
+        #         # if self.TimeSeries[gid]['raw_signal'][-1] == [self.LearnTime,True]:
+        #             if self.printlvl >= 1:
+        #                 print (u"Locking %s  : index %s atoms %s series %s" % (ef_str, iidx_str, atom_str, ts_str)).encode('utf-8')
+        #             self.TimeSeries[gid]['lock'] = True
+        #             self.IsoLocks[self.TimeSeries[gid]['iidx']] = True
+        #         if self.TimeSeries[gid]['raw_signal'][-1] == [int(LDFac*self.LearnTime),False]:
+        #             if self.IsoLocks[self.TimeSeries[gid]['iidx']] == False:
+        #                 # if self.printlvl >= 2:
+        #                 #     print "Deleting graph from isomer index"
+        #                 self.Isomers[self.TimeSeries[gid]['iidx']].Alive = False
+        #             if self.printlvl >= 2:
+        #                 print (u"Archiving %s : index %s atoms %s series %s" % (ef_str, iidx_str, atom_str, ts_str)).encode('utf-8')
+        #                 #print u"Deleting %s : atoms %s iidx %s times %s" % (ef_str, atom_str, iidx_str, ts_str)
+        #             self.TSArchive[gid] = deepcopy(self.TimeSeries[gid])
+        #             del self.TimeSeries[gid]
+        # #print "There are %i isomers" % len(self.Isomers)
 
         self.NumMols.append(NumMols)
         self.IsoLabels.append(ilabels)
@@ -507,6 +574,7 @@ class Nanoreactor(Molecule):
             tsnum += 1
             if self.printlvl >= 0: print "\r%i of %i done" % (tsnum, len(self.TimeSeries)),
             if self.printlvl >= 2:
+                print
                 print "Raw Signal:", RawSignal
                 print "Filled    :", FilledSignal
                 print "Rectified :", RectifiedSignal
@@ -516,7 +584,6 @@ class Nanoreactor(Molecule):
         return
 
     def Analyze(self):
-        #ValidIso = [I for I in self.Isomers if I.Alive]
         MaxLife = [max([longest_lifetime(self.TimeSeries[g]['signal']) for g in self.TimeSeries if self.TimeSeries[g]['iidx'] == u] + [0]) for u in range(len(self.Isomers))]
         BornTimes = []
         Indices = []
@@ -599,7 +666,7 @@ class Nanoreactor(Molecule):
                         #     break
                         NewSet = set(ts['graph'].L())
                         if len(Answer.intersection(NewSet)) > 0:
-                            if self.printlvl >= 2:
+                            if self.printlvl >= 3:
                                 print "Double-counting has occurred"
                             break
                         Answer.update(NewSet)
@@ -611,7 +678,7 @@ class Nanoreactor(Molecule):
                     if GoodTime >= ThreshTime:
                         return sorted(list(Answer)), Gids, frame, sorted(Isos)
                 else:
-                    if self.printlvl >= 2:
+                    if self.printlvl >= 3:
                         print "The accumulated atoms are not a superset of the input atoms - accumulated = %s, input = %s" % (commadash(Answer),commadash(atoms))
             else:
                 if self.printlvl >= 2:
@@ -799,7 +866,7 @@ class Nanoreactor(Molecule):
             iidx = ts['iidx']
             I = self.Isomers[iidx]
             S = segments(FillGaps(ts['signal'],self.LearnTime))
-            if self.printlvl >= 1: print "Original and Condensed Segments:", segments(ts['signal']), S
+            if self.printlvl >= 1 and segments(ts['signal']): print "Original and Condensed Segments:", segments(ts['signal']), S
             aidx = ts['graph'].L()
             if iidx not in self.BoringIsomerIdxs and len(S) > 0:
                 if self.printlvl >= 1: print "Molecular formula:", I.ef(), "atoms:", commadash(aidx), "frames:", S
@@ -1197,7 +1264,7 @@ mol modstyle %i 0 VDW 0.150000 27.000000
     def MakeGraphFromXYZ(self, sn, window=10):
         G = MyG()
         bonds = [[] for i in range(self.na)]
-        lengths = []
+        # lengths = []
         for i, a in enumerate(self.elem):
             G.add_node(i)
             if parse_version(nx.__version__) >= parse_version('2.0'):
@@ -1210,16 +1277,19 @@ mol modstyle %i 0 VDW 0.150000 27.000000
                     nx.set_node_attributes(G,'n',{i:self.atomname[i]})
                 nx.set_node_attributes(G,'e',{i:a})
                 nx.set_node_attributes(G,'x',{i:self.xyzs[sn][i]})
-        bond_bool = self.dxij[0] < self.BondThresh
+        if self.BO:
+            bond_bool = [self.BOMat[sn][ii, jj] > self.BOThre for (ii, jj) in self.AtomIterator]
+        else:
+            bond_bool = self.dxij[0] < self.BondThresh
         for i, a in enumerate(bond_bool):
             if not a: continue
             (ii, jj) = self.AtomIterator[i]
             bonds[ii].append(jj)
             bonds[jj].append(ii)
             G.add_edge(ii, jj)
-            lengths.append(self.dxij[0][i])
+            # lengths.append(self.dxij[0][i])
         self.BondLists.append(bondlist_tcl(bonds))
-        self.BondLengths.append(lengths)
+        # self.BondLengths.append(lengths)
         return G
 
     def Output(self):

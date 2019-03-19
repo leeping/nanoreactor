@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-import os, argparse
+import os, sys, argparse
 from nanoreactor import Nanoreactor
 
 #==========================#
@@ -21,6 +21,10 @@ parser = argparse.ArgumentParser()
 add_argument(parser, 'xyzin', metavar='input.xyz', help='Input coordinate file \x1b[1;91m(Required)\x1b[0m', type=str)
 add_argument(parser, '-q', dest='qsin', help='xyz formatted file with charges on x-coordinate and spins on y-coordinate',
              default='charge-spin.txt', type=str)
+add_argument(parser, '-B', dest='boin', help='File containing pairwise bond orders',
+             default='bond_order.list', type=str)
+add_argument(parser, '-T', dest='bothre', help='Bond order threshold (set nonzero to use)',
+             default=0.0, type=float)
 add_argument(parser, '-s', dest='stride', help='Skip number of frames when analyzing trajectory, default is don\'t skip.',
              default=1, type=int)
 add_argument(parser, '-e', dest='enhance', help='Enhancement factor for bond detection; larger number = more bonds. For hydroxide we used 1.25 * (1.2 / 1.2125).',
@@ -51,9 +55,11 @@ add_argument(parser, '-b', dest='boring', nargs='+', help='Boring molecules to b
 add_argument(parser, '-D', dest='disallow', nargs='+', help='Disallowed molecules to be excluded from recognition (by empirical formula).  This constitutes manual intervention into the algorithm and should be avoided.',
              default=[], type=str)
 add_argument(parser, '-N', '--neutralize', help='Extract nearby molecules to neutralize the system', action='store_true')
+add_argument(parser, '--radii', type=str, nargs="+", default=["Na","0.0","K","0.0"], help='Custom atomic radii for bond detection.')
 
 
-
+print "LearnReactions.py called with the following arguments:"
+print ' '.join(sys.argv)
 print
 print " #=========================================#"
 print " #       Reactive MD learning script       #"
