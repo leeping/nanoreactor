@@ -27,6 +27,7 @@ import sys
 from select import select
 
 import numpy as np
+from numpy.linalg import multi_dot
 
 # For Python 3 compatibility
 try:
@@ -46,15 +47,19 @@ from collections import OrderedDict, defaultdict
 #================================#
 #       Set up the logger        #
 #================================#
-try:
+if "forcebalance" in __name__:
+    # If this module is part of ForceBalance, use the package level logger
     from .output import *
-except ImportError:
+    package="ForceBalance"
+else:
     from logging import *
+    # Define two handlers that don't print newline characters at the end of each line
     class RawStreamHandler(StreamHandler):
-        """Exactly like output.StreamHandler except it does no extra formatting
-        before sending logging messages to the stream. This is more compatible with
-        how output has been displayed in ForceBalance. Default stream has also been
-        changed from stderr to stdout"""
+        """
+        Exactly like StreamHandler, except no newline character is printed at the end of each message.
+        This is done in order to ensure functions in molecule.py and nifty.py work consistently
+        across multiple packages.
+        """
         def __init__(self, stream = sys.stdout):
             super(RawStreamHandler, self).__init__(stream)
 
@@ -62,9 +67,37 @@ except ImportError:
             message = record.getMessage()
             self.stream.write(message)
             self.flush()
-    logger=getLogger()
-    logger.handlers = [RawStreamHandler(sys.stdout)]
-    logger.setLevel(INFO)
+
+    class RawFileHandler(FileHandler):
+        """
+        Exactly like FileHandler, except no newline character is printed at the end of each message.
+        This is done in order to ensure functions in molecule.py and nifty.py work consistently
+        across multiple packages.
+        """
+        def __init__(self, *args, **kwargs):
+            super(RawFileHandler, self).__init__(*args, **kwargs)
+
+        def emit(self, record):
+            if self.stream is None:
+                self.stream = self._open()
+            message = record.getMessage()
+            self.stream.write(message)
+            self.flush()
+            
+    if "geometric" in __name__:
+        # This ensures logging behavior is consistent with the rest of geomeTRIC
+        logger = getLogger(__name__)
+        logger.setLevel(INFO)
+        package="geomeTRIC"
+    else:
+        logger = getLogger("NiftyLogger")
+        logger.setLevel(INFO)
+        handler = RawStreamHandler()
+        logger.addHandler(handler)
+        if __name__ == "__main__":
+            package = "LPW-nifty.py"
+        else:
+            package = __name__.split('.')[0]
 
 try:
     import bz2
@@ -79,7 +112,6 @@ try:
 except ImportError:
     logger.warning("gzip module import failed (used in compressing or decompressing pickle files)\n")
     HaveGZ = False
-
 
 ## Boltzmann constant
 kb = 0.0083144100163
@@ -146,9 +178,9 @@ def astr(vec1d, precision=4):
     return ' '.join([("%% .%ie " % precision % i) for i in vec1d])
 
 def pmat2d(mat2d, precision=1, format="e", loglevel=INFO):
-    """Printout of a 2-D matrix.
+    """Printout of a 2-D array.
 
-    @param[in] mat2d a 2-D matrix
+    @param[in] mat2d a 2-D array
     """
     m2a = np.array(mat2d)
     for i in range(m2a.shape[0]):
@@ -254,7 +286,7 @@ def printcool(text,sym="#",bold=False,color=2,ansi=None,bottom='-',minwidth=50,c
     @return bar The bottom bar is returned for the user to print later, e.g. to mark off a 'section'
     """
     def newlen(l):
-        return len(re.sub("\x1b\[[0-9;]*m","",l))
+        return len(re.sub(r"\x1b\[[0-9;]*m","",l))
     text = text.split('\n')
     width = max(minwidth,max([newlen(line) for line in text]))
     bar = ''.join([sym2 for i in range(width + 6)])
@@ -337,7 +369,7 @@ def isfloat(word):
     try: word = str(word)
     except: return False
     if len(word) == 0: return False
-    return re.match('^[-+]?[0-9]*\.?[0-9]*([eEdD][-+]?[0-9]+)?$',word)
+    return re.match(r'^[-+]?[0-9]*\.?[0-9]*([eEdD][-+]?[0-9]+)?$',word)
 
 def isdecimal(word):
     """Matches things with a decimal only; see isint and isfloat.
@@ -366,24 +398,24 @@ def floatornan(word):
 
 def col(vec):
     """
-    Given any list, array, or matrix, return a 1-column matrix.
+    Given any list, array, or matrix, return a 1-column 2D array.
 
     Input:
     vec  = The input vector that is to be made into a column
 
     Output:
-    A column matrix
+    A 1-column 2D array
     """
-    return np.matrix(np.array(vec).reshape(-1, 1))
+    return np.array(vec).reshape(-1, 1)
 
 def row(vec):
-    """Given any list, array, or matrix, return a 1-row matrix.
+    """Given any list, array, or matrix, return a 1-row 2D array.
 
     @param[in] vec The input vector that is to be made into a row
 
-    @return answer A row matrix
+    @return answer A 1-row 2D array
     """
-    return np.matrix(np.array(vec).reshape(1, -1))
+    return np.array(vec).reshape(1, -1)
 
 def flat(vec):
     """Given any list, array, or matrix, return a single-index array.
@@ -494,16 +526,16 @@ def monotonic_decreasing(arr, start=None, end=None, verbose=False):
         end = len(arr) - 1
     a0 = arr[start]
     idx = [start]
-    if verbose: print("Starting @ %i : %.6f" % (start, arr[start]))
+    if verbose: logger.info("Starting @ %i : %.6f\n" % (start, arr[start]))
     if end > start:
         i = start+1
         while i < end:
             if arr[i] < a0:
                 a0 = arr[i]
                 idx.append(i)
-                if verbose: print("Including  %i : %.6f" % (i, arr[i]))
+                if verbose: logger.info("Including  %i : %.6f\n" % (i, arr[i]))
             else:
-                if verbose: print("Excluding  %i : %.6f" % (i, arr[i]))
+                if verbose: logger.info("Excluding  %i : %.6f\n" % (i, arr[i]))
             i += 1
     if end < start:
         i = start-1
@@ -511,9 +543,9 @@ def monotonic_decreasing(arr, start=None, end=None, verbose=False):
             if arr[i] < a0:
                 a0 = arr[i]
                 idx.append(i)
-                if verbose: print("Including  %i : %.6f" % (i, arr[i]))
+                if verbose: logger.info("Including  %i : %.6f\n" % (i, arr[i]))
             else:
-                if verbose: print("Excluding  %i : %.6f" % (i, arr[i]))
+                if verbose: logger.info("Excluding  %i : %.6f\n" % (i, arr[i]))
             i -= 1
     return np.array(idx)
 
@@ -536,23 +568,23 @@ def invert_svd(X,thresh=1e-12):
     """
 
     Invert a matrix using singular value decomposition.
-    @param[in] X The matrix to be inverted
+    @param[in] X The 2-D NumPy array containing the matrix to be inverted
     @param[in] thresh The SVD threshold; eigenvalues below this are not inverted but set to zero
-    @return Xt The inverted matrix
+    @return Xt The 2-D NumPy array containing the inverted matrix
 
     """
 
     u,s,vh = np.linalg.svd(X, full_matrices=0)
-    uh     = np.matrix(np.transpose(u))
-    v      = np.matrix(np.transpose(vh))
+    uh     = np.transpose(u)
+    v      = np.transpose(vh)
     si     = s.copy()
     for i in range(s.shape[0]):
         if abs(s[i]) > thresh:
             si[i] = 1./s[i]
         else:
             si[i] = 0.0
-    si     = np.matrix(np.diag(si))
-    Xt     = v*si*uh
+    si     = np.diag(si)
+    Xt     = multi_dot([v, si, uh])
     return Xt
 
 #==============================#
@@ -581,7 +613,9 @@ def get_least_squares(x, y, w = None, thresh=1e-12):
     @param[out] MPPI The Moore-Penrose pseudoinverse (multiply by Y to get least-squares coefficients, multiply by dY/dk to get derivatives of least-squares coefficients)
     """
     # X is a 'tall' matrix.
-    X = np.matrix(x)
+    X = np.array(x)
+    if len(X.shape) == 1:
+        X = X[:,np.newaxis]
     Y = col(y)
     n_x = X.shape[0]
     n_fit = X.shape[1]
@@ -592,18 +626,18 @@ def get_least_squares(x, y, w = None, thresh=1e-12):
         if len(w) != n_x:
             warn_press_key("The weight array length (%i) must be the same as the number of 'X' data points (%i)!" % len(w), n_x)
         w /= np.mean(w)
-        WH = np.matrix(np.diag(w**0.5))
+        WH = np.diag(w**0.5)
     else:
-        WH = np.matrix(np.eye(n_x))
+        WH = np.eye(n_x)
     # Make the Moore-Penrose Pseudoinverse.
     # if n_fit == n_x:
     #     MPPI = np.linalg.inv(WH*X)
     # else:
     # This resembles the formula (X'WX)^-1 X' W^1/2
-    MPPI = np.linalg.pinv(WH*X)
-    Beta = MPPI * WH * Y
-    Hat = WH * X * MPPI
-    yfit = flat(Hat * Y)
+    MPPI = np.linalg.pinv(np.dot(WH, X))
+    Beta = multi_dot([MPPI, WH, Y])
+    Hat = multi_dot([WH, X, MPPI])
+    yfit = flat(np.dot(Hat, Y))
     # Return three things: the least-squares coefficients, the hat matrix (turns y into yfit), and yfit
     # We could get these all from MPPI, but I might get confused later on, so might as well do it here :P
     return np.array(Beta).flatten(), np.array(Hat), np.array(yfit).flatten(), np.array(MPPI)
@@ -735,7 +769,7 @@ def lp_dump(obj, fnm, protocol=0):
     #     logger.error("lp_dump cannot write to an existing path")
     #     raise IOError
     if os.path.islink(fnm):
-        logger.warn("Trying to write to a symbolic link %s, removing it first\n" % fnm)
+        logger.warning("Trying to write to a symbolic link %s, removing it first\n" % fnm)
         os.unlink(fnm)
     if HaveGZ:
         f = gzip.GzipFile(fnm, 'wb')
@@ -823,7 +857,7 @@ def getWQIds():
     global WQIDS
     return WQIDS
 
-def createWorkQueue(wq_port, debug=True, name='nanoreactor'):
+def createWorkQueue(wq_port, debug=True, name=package):
     global WORK_QUEUE
     if debug:
         work_queue.set_debug_flag('all')
@@ -1071,7 +1105,7 @@ def listfiles(fnms=None, ext=None, err=False, dnm=None):
             raise RuntimeError
         answer = [fnms]
     elif fnms is not None:
-        print(fnms)
+        logger.info(str(fnms))
         logger.error('First argument to listfiles must be a list, a string, or None')
         raise RuntimeError
     if answer == [] and ext is not None:
@@ -1185,7 +1219,7 @@ def MissingFileInspection(fnm):
 def wopen(dest, binary=False):
     """ If trying to write to a symbolic link, remove it first. """
     if os.path.islink(dest):
-        logger.warn("Trying to write to a symbolic link %s, removing it first\n" % dest)
+        logger.warning("Trying to write to a symbolic link %s, removing it first\n" % dest)
         os.unlink(dest)
     if binary:
         return open(dest,'wb')

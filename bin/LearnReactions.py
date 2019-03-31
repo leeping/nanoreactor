@@ -25,38 +25,23 @@ add_argument(parser, '-B', dest='boin', help='File containing pairwise bond orde
              default='bond_order.list', type=str)
 add_argument(parser, '-T', dest='bothre', help='Bond order threshold (set nonzero to use)',
              default=0.0, type=float)
-add_argument(parser, '-s', dest='stride', help='Skip number of frames when analyzing trajectory, default is don\'t skip.',
-             default=1, type=int)
 add_argument(parser, '-e', dest='enhance', help='Enhancement factor for bond detection; larger number = more bonds. For hydroxide we used 1.25 * (1.2 / 1.2125).',
              default=1.4, type=float)
 add_argument(parser, '-m', dest='mindist', help='Below this distance (in Angstrom) all atoms are considered to be bonded.',
              default=1.0, type=float)
-add_argument(parser, '--metastability', help='Metastability parameter for Hidden Markov Model used to stabilize time series (closer to 1.0 = more aggressive ; <= 0 to turn off).',
-             default=0.999, type=float)
-add_argument(parser, '--pcorrectemit', help='Correctness probability parameter for Hidden Markov Model used to stabilize time series (closer to 0.5 = more aggressive; <= 0 to turn off).',
-             default=0.6, type=float)
+add_argument(parser, '-s', dest='dt_fs', help='Provide time step in femtoseconds (only used if properties.txt does not exist)',
+             default=0.0, type=float)
 add_argument(parser, '-p', dest='printlvl', help='Print level.  1: Print out unrectified time series. 2: Print out empirical formulas as they are discovered.',
              default=0, type=int)
-# add_argument(parser, '-P', dest='padtime', help='Pad reactive trajectories by this many frames. Defaults to learntime/4.',
-#              default=0, type=int)
-add_argument(parser, '-t', dest='learntime', help='Molecules existing for at least (learntime*stride) frames are recognized and given a color.',
-             default=200, type=int)
-# Default behavior is to exact reactions but not reaction products. :)
-add_argument(parser, '-X', dest='extract', help='Extract recognized molecules and write their trajectories to extract_###.xyz .',
-             action='store_true', default=False) 
-add_argument(parser, '-R', dest='saverxn', help='Extract recognized chemical reactions and write their trajectories to reaction_###.xyz .',
-             action='store_true', default=True)
-add_argument(parser, '-f', dest='frames', help='Trajectory length to process (out of total frames in XYZ).  Passing zero specifies all frames.',
-             default=0, type=int)
-add_argument(parser, '-o', dest='xyzout', help='Output coordinate file containing selected frames.  Enter "None" to prevent writing output.',
-             default='None', type=str)
-add_argument(parser, '-b', dest='boring', nargs='+', help='Boring molecules to be excluded from learning.  Ignore isomers in the first frame that match the given alphabetically-ordered empirical formula (or type All to ignore all isomers in the first frame.)',
+add_argument(parser, '-t', dest='learntime', help='Molecules that exist for at least this number of *femtoseconds* are recognized as stable in reaction event detection.',
+             default=100, type=int)
+add_argument(parser, '-k', dest='known', nargs='+', help='Known empirical formulas not to be colored (type All to include all molecules in the first frame)',
              default=['all'], type=str)
-add_argument(parser, '-D', dest='disallow', nargs='+', help='Disallowed molecules to be excluded from recognition (by empirical formula).  This constitutes manual intervention into the algorithm and should be avoided.',
+add_argument(parser, '-E', dest='exclude', nargs='+', help='Empirical formulas to be excluded from all reaction events',
              default=[], type=str)
 add_argument(parser, '-N', '--neutralize', help='Extract nearby molecules to neutralize the system', action='store_true')
 add_argument(parser, '--radii', type=str, nargs="+", default=["Na","0.0","K","0.0"], help='Custom atomic radii for bond detection.')
-
+add_argument(parser, '--plot', action='store_true', help='Save interatomic distance or bond order time series to files.')
 
 print "LearnReactions.py called with the following arguments:"
 print ' '.join(sys.argv)
@@ -75,7 +60,7 @@ def main():
             os.system('bunzip2 %s.bz2' % args.qsin)
     RS = Nanoreactor(**dict(args._get_kwargs())) # _get_kwargs takes the ArgumentParser object and turns it into a dictionary
     RS.Output()
-    print "Reaction product identification finished.  color.dat and bonds.dat generated.  Now run: vmd -e reactions.vmd -args %s" % RS.fout
+    print "Reaction product identification finished.  color.dat and bonds.dat generated.  Now run: vmd -e reactions.vmd -args %s" % args.xyzin
 
 if __name__ == "__main__":
     main()

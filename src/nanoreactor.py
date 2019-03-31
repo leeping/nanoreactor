@@ -1,32 +1,24 @@
 #!/usr/bin/env python
 
-import warnings
-# Suppress warnings from Molecule class.
-warnings.simplefilter("ignore")
 import os, sys, re
 import networkx as nx
 import numpy as np
 import copy
-import ast
-from collections import OrderedDict, defaultdict, Counter
+from collections import namedtuple, OrderedDict, defaultdict, Counter
 from chemistry import Elements, Radii
 from copy import deepcopy
-from molecule import Molecule, format_xyz_coord, extract_int
+from molecule import Molecule, format_xyz_coord
 import contact
 import itertools
 import time
-from viterbi import viterbi, _viterbi, viterbi_skl
 from pkg_resources import parse_version
-try:
-    from sklearn.hmm import MultinomialHMM
-    have_sklearn = 1
-except: 
-    print "Cannot import Hidden Markov Models: load Intel compiler environment or consider pip install scikit-learn"
-    have_sklearn = 0
+from scipy.signal import butter, freqz
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
 
 ## Names of colors from VMD
 ColorNames = ["blue", "red", "gray", "orange", "yellow", 
-              "tan", "silver", "green", "white", "pink", 
+              "tan", "silver", "green", "none", "pink", 
               "cyan", "purple", "lime", "mauve", "ochre",
               "iceblue", "black", "yellow2", "yellow3", "green2",
               "green3", "cyan2", "cyan3", "blue2", "blue3", 
@@ -103,18 +95,50 @@ def segments(e):
     return [(i, i+j) for i, j in zip(begins, lens)]
 
 def commadash(l):
-    # Formats a list like [27, 28, 29, 30, 31, 88, 89, 90, 91, 100, 136, 137, 138, 139]
-    # into '27-31,88-91,100,136-139
+    # Formats a list like [26, 27, 28, 29, 30, 87, 88, 89, 90, 99, 135, 136, 137, 138]
+    # into a string as: '27-31,88-91,100,136-139'
+    # Note: The string uses one-based indices whereas the list uses zero-based indices
     L = sorted(l)
     if len(L) == 0:
         return "(empty)"
     L.append(L[-1]+1)
     LL = [i in L for i in range(L[-1])]
-    return ','.join('%i-%i' % (i[0],i[1]-1) if (i[1]-1 > i[0]) else '%i' % i[0] for i in segments(encode(LL)))
+    return ','.join('%i-%i' % (i[0]+1,i[1]) if (i[1]-1 > i[0]) else '%i' % (i[0]+1) for i in segments(encode(LL)))
 
 def uncommadash(s):
-    # Does the opposite of commadash
-    return list(itertools.chain(*[range(int(i.split('-')[0]), int(i.split('-')[1])+1) if len(i.split('-')) > 1 else [int(i)] for i in s.split(',')]))
+    # Takes a string like '27-31,88-91,100,136-139'
+    # and turns it into a list like [26, 27, 28, 29, 30, 87, 88, 89, 90, 99, 135, 136, 137, 138]
+    # Note: The string uses one-based indices whereas the list uses zero-based indices
+    L = []
+    try:
+        for w in s.split(','):
+            ws = w.split('-')
+            a = int(ws[0])-1
+            if len(ws) == 1:
+                b = int(ws[0])
+            elif len(ws) == 2:
+                b = int(ws[1])
+            else:
+                print "Dash-separated list cannot exceed length 2"
+                raise
+            if a < 0 or b <= 0 or b <= a:
+                if a < 0 or b <= 0:
+                    print "Items in list cannot be zero or negative: %d %d" % (a, b)
+                else:
+                    print "Second number cannot be smaller than first: %d %d" % (a, b)
+                raise
+            newL = range(a,b)
+            if any([i in L for i in newL]):
+                print "Duplicate entries found in list"
+                raise
+            L += newL
+        if sorted(L) != L:
+            print "List is out of order"
+            raise
+    except:
+        print "Invalid string for converting to list of numbers: %s" % s
+        raise RuntimeError
+    return L
 
 def longest_segment(e):
     # Takes encoded input.
@@ -141,46 +165,6 @@ def exists_at_time(e, t):
             return x
         t0 = t1
     return x
-        
-def Rectify(signal, metastability, pcorrectemission):
-    """
-    Rectify a time series of true / false variables using Hidden Markov Model.
-    Thanks to Robert McGibbon
-
-    Note: In newer versions of sklearn, HMM will be deprecated.  At
-    that time we may need to install a new package, or simply install
-    sklearn version 0.15 or older.
-    """
-    if have_sklearn == 0:
-        return None
-    if metastability <= 0 or pcorrectemission <= 0:
-        return None
-    signal_ = np.array(decode(signal))
-    # Inputs: 
-    # Signal: A time series of true / false variables.
-    # mestability: Probability that the underlying signal continues to be True(False) if the current value is True(False)
-    # In principle possible to have two different values, but in practice we just use one.
-    # Relatively strong rectification is 0.999 (stronger is closer to 1)
-    # pcorrectemission: Probability that the measured signal is a correct prediction of the underlying signal
-    # Relatively strong rectivation is 0.6 (stronger is lower)
-    # Higher metastability + lower pcorrect = longer segments (more aggressive model).
-    transmat = np.array([[metastability, 1-metastability], [1-metastability, metastability]])
-    emission = np.array([[pcorrectemission, 1-pcorrectemission], [1-pcorrectemission, pcorrectemission]])
-    hmm = MultinomialHMM(n_components=2, startprob=[0.5, 0.5], transmat=transmat)
-    hmm.emissionprob_ = emission
-    corrected = hmm.predict(signal_)
-    return encode(corrected)
-
-def FillGaps(signal, delay):
-    # Erase short gaps of 'False' in a time series.
-    # Input and output are encoded.
-    filled = []
-    for ichunk, chunk in enumerate(signal):
-        if (ichunk > 0) and (ichunk < len(signal)-1) and (chunk[0] <= delay) and (chunk[1] == 0):
-            filled.append([chunk[0], 1])
-        else:
-            filled.append(chunk)
-    return encode(decode(filled))
 
 def bondlist_tcl(bondlist):
     # Print out the list of bonds in a format that VMD can understand.
@@ -197,11 +181,6 @@ def bondlist_tcl(bondlist):
         else:
             Answer += "{%s}" % ' '.join(["%i" % j for j in b])
     return Answer
-
-def NanoEqual(Nano1, Nano2):
-    GraphEqual = Counter([i['graph'] for i in Nano1.TimeSeries.values()]) == Counter([i['graph'] for i in Nano2.TimeSeries.values()])
-    AtomEqual = Counter([tuple(i['graph'].L()) for i in Nano1.TimeSeries.values()]) == Counter([tuple(i['graph'].L()) for i in Nano2.TimeSeries.values()])
-    return GraphEqual and AtomEqual
 
 def make_monotonic(xyz, others=[]):
     M = Molecule(xyz)
@@ -240,7 +219,7 @@ class MyG(nx.Graph):
         return sorted(self.nodes())
     def AStr(self):
         ''' Return a string of atoms, which serves as a rudimentary 'fingerprint' : '99,100,103,151' . '''
-        return ','.join(['%i' % i for i in self.L()])
+        return commadash(self.L())
     def e(self):
         ''' Return an array of the elements.  For instance ['H' 'C' 'C' 'H']. '''
         elems = nx.get_node_attributes(self,'e')
@@ -267,448 +246,1266 @@ class MyG(nx.Graph):
             x -= x.mean(0)
         with open(fnm,'w') as f: f.writelines([i+'\n' for i in out])
 
-def split_gid(gid):
-    a, b = gid.split(':')
-    atoms = commadash([int(i) for i in a.split(',')])
-    iidx = b
-    return atoms, iidx
+def low_pass_smoothing(all_raw_time_series, sigma, dt_fs):
+    """ 
+    Low-pass smoothing function for bond order or interatomic distance time series.
+    
+    Parameters
+    ----------
+    all_raw_time_series : np.ndarray
+        2-D array consisting of time series to be filtered. First dimension is the number
+        of time series to be filtered at once; second dimension is the length of each series
+    sigma : float
+        Filter roll-off frequency expressed in wavenumbers.
+    dt_fs : float
+        Time step of time series expressed in femtoseconds.
+
+    Returns
+    -------
+    filtered : np.ndarray
+        Signal after lowpass filter has been applied, in the same shape as all_raw_time_series
+    freqx : np.ndarray
+        Frequency axis for plotting spectra in units of cm^-1
+    ft_original : np.ndarray
+        Fourier-transform of doubled signal truncated to original signal length
+    ft_filtered : np.ndarray
+        Fourier-transform of doubled signal with filter applied, truncated to original signal length
+    """
+    # Length of trajectory
+    traj_length = all_raw_time_series.shape[1]
+    # Conversion from sampling rate (inverse timestep in units of fs^-1) to wavenumber
+    conversion = 33355.0/dt_fs
+    # Order of the Butterworth filter
+    order = 6
+    
+    # Frequency cutoff in units of the Nyquist frequency (half of the sampling rate.)
+    # Our timeseries will first be extended by appending the reversed data (minus first and last data points)
+    # in order to mitigate "tail" effects, for example:
+    # 0.3, 0.5, 0.7, 1.0 -> 0.3, 0.5, 0.7, 1.0, 0.7, 0.5
+    # Thus, the number of data points is N = 2.0*traj_length - 2.
+    # When the FFT is carried out, the frequency components corresponds to 0, 1.0/(N*dt), ..., (N-1)/(N*dt).
+    # The frequency spacing is 1.0/(N*dt) and the Nyquist frequency is half the sampling rate (1/2*dt)
+    # Thus, a frequency cutoff provided in wavenumber will first be converted to units of the inverse timestep as:
+    # 
+    # sigma      1 cm       dt_fs * fs        
+    # ----- * ---------- * ------------ * 2 = low_cutoff
+    #  cm     33500 * fs        dt            
+    #
+    # 1) Cutoff frequency in cm^-1
+    # 2) Cutoff frequency in fs^-1
+    # 3) Cutoff frequency in units of sampling rate dt^-1
+    # 4) Cutoff frequency in units of Nyquist frequency
+    low_cutoff = float(sigma)/conversion * 2.0
+    # Create Butterworth filter coefficients
+    b, a = butter(order, low_cutoff, btype='low')
+    # Create the doubled time series
+    reflected = np.fliplr(all_raw_time_series)
+    # remove the enpoints of the reflected
+    reflected = np.delete(reflected, -1, axis=1)
+    reflected = np.delete(reflected, 0, axis=1)
+    # attach the signal end-to-end with its reflection. The purpose of this is is get rid of the tailing issue
+    doubled_series = np.hstack((all_raw_time_series, reflected))
+    new_len = len(doubled_series[0]) # length of doubled end-to-end time series
+    # list of elements that make up the reflected portion (to be used to remove the reflected portion later on)
+    removal_list = range(traj_length, new_len)
+    # create the frequency portion (for plotting)
+    w, h = freqz(b, a, worN=traj_length)
+    # fast fourier transform
+    ft = np.fft.fft(doubled_series)
+    abs_of_h = abs(h) # butterworth filter
+    reverse_h = np.flipud(abs_of_h)
+    reverse_h = np.delete(reverse_h, -1, axis=0)
+    reverse_h = np.delete(reverse_h, 0, axis=0)
+    # handmade Butterworth filter (accounting for the doubled data)
+    modified_filter = np.hstack((abs_of_h, reverse_h))
+    # multiply the FT by the filter to filter out higher frequencies
+    ft_filtered = ft*abs(modified_filter)
+    filtered = np.fft.ifft(ft_filtered)
+    # Delete the data from the reflection addition
+    filtered = np.delete(filtered, removal_list, axis=1)
+    ft_original = np.delete(ft, removal_list, axis=1)
+    ft_filtered = np.delete(ft_filtered, removal_list, axis=1)
+    freqx = w*conversion/(2*np.pi)
+    return abs(filtered), freqx, ft_original, ft_filtered
+
+def load_bondorder(boin, thre, traj_length):
+    """
+    Load a bondorder.list file.  
+
+    This file format only lists bond orders above a threshold (typically 0.1)
+    in each frame. Thus, the returned data takes the form of a sparse array.
+
+    Parameters
+    ----------
+    boin : str
+        Name of the bond_order.list file
+    thre : float
+        Floating 
+    traj_length : int
+        Length of the trajectory
+    
+    Returns
+    -------
+    OrderedDict
+        Dictionary that maps zero-indexed atom pairs (a1, a2) to numpy array
+        containing the bond order between a1, a2 for each frame. 
+        Keys only include a2 > a1
+    """
+    boMode = 0
+    boFrame = -1
+    boSparse = OrderedDict()
+    keys = []
+    for ln, line in enumerate(open(boin).readlines()):
+        if boMode == 0:
+            nbo = int(line.strip())
+            boLine = ln
+            boMode = 1
+            boFrame += 1
+        elif boMode == 1:
+            if ln > boLine+1:
+                s = line.split()
+                a1 = int(s[0])
+                a2 = int(s[1])
+                bo = float(s[2])
+                a1, a2 = sorted((a1, a2))
+                if a1 != a2:
+                    if (a1, a2) not in boSparse:
+                        boSparse[(a1, a2)] = np.zeros(traj_length, dtype=float)
+                        keys.append((a1, a2))
+                    boSparse[(a1, a2)][boFrame] = bo
+                if ln == boLine+nbo+1:
+                    boMode = 0
+    sortkeys = sorted(keys)
+    boSparse_sorted = OrderedDict([(k, boSparse[k]) for k in sortkeys if np.max(boSparse[k]) > thre])
+    return boSparse_sorted
+
+def formulaSum(efList):
+    """ Takes a list of empirical formulas such as ['H2O', 'H2O', 'CH4'] and returns '2H2O+CH4'. """
+    count = Counter(efList)
+    words = []
+    for v in sorted(list(set(count.values())))[::-1]:
+        for k, v1 in count.items():
+            if v == v1:
+                if v == 1:
+                    words.append(k)
+                else:
+                    words.append('%i%s' % (v, k))
+    return '+'.join(words)
 
 class Nanoreactor(Molecule):
-    def __init__(self, xyzin=None, qsin=None, boin=None, bothre=0.0, ftype=None, stride=1, enhance=1.4, mindist=1.0, printlvl=0, boring=['all'], disallow=[], learntime=200, padtime=0, extract=False, frames=0, xyzout='out.xyz', metastability=0.999, pcorrectemit=0.6, saverxn=True, neutralize=False, radii=[]):
-        #==========================#
-        #   Load in the XYZ file   #
-        #==========================#
-        if printlvl >= 0: print "Loading molecule ...",
-        if xyzin == None:
-            raise Exception('Nanoreactor must be initialized with an .xyz file as the first argument')
-        super(Nanoreactor,self).__init__(xyzin, ftype)
-        if qsin != None and os.path.exists(qsin):
-            if printlvl >= 0:
-                print "Loading charge and spin populations...",
-            QS = Molecule(qsin, ftype="xyz")
-            self.Charges = np.array([xyz[:, 0] for xyz in QS.xyzs])
-            self.Spins = np.array([xyz[:, 1] for xyz in QS.xyzs])
-        else:
-            self.Charges = np.array([[0 for i in range(self.na)] for j in range(len(self))])
-            self.Spins = np.array([[0 for i in range(self.na)] for j in range(len(self))])
-        self.BOMat = []
-        self.BOThre = bothre
-        self.BO = False
-        if boin != None and os.path.exists(boin) and bothre > 0.0:
-            self.BO = True
-            if printlvl >= 0:
-                print "Loading pairwise bond orders...",
-            boMode = 0
-            for ln, line in enumerate(open(boin).readlines()):
-                if boMode == 0:
-                    nbo = int(line.strip())
-                    boLine = ln
-                    boMode = 1
-                    boMat = np.zeros((self.na, self.na), dtype=float)
-                elif boMode == 1:
-                    if ln > boLine+1:
-                        s = line.split()
-                        a1 = int(s[0])
-                        a2 = int(s[1])
-                        bo = float(s[2])
-                        boMat[a1, a2] = bo
-                        boMat[a2, a1] = bo
-                        if ln == boLine+nbo+1:
-                            boMode = 0
-                            self.BOMat.append(boMat.copy())
-                        
-        if printlvl >= 0: print "Done"
+    def __init__(self, xyzin=None, qsin=None, properties='properties.txt', dt_fs=0.0, boin='bond_order.list', bothre=0.0,
+                 enhance=1.4, mindist=1.0, printlvl=0, known=['all'], exclude=[], learntime=100, padtime=0, extract=False, frames=0, saverxn=True,
+                 neutralize=False, radii=[], plot=False):
         #==========================#
         #         Settings         #
         #==========================#
         # Enhancement factor for determining whether two atoms are bonded
         self.Fac = enhance
-        # Set the number of frames.
-        self.Frames = self.ns if frames == 0 else frames
-        # Set the frame skip
-        self.stride = stride
         # Switch for whether to extract molecules.
         self.extract = extract
-        # Switch for whether to save chemical reactions.
-        self.saverxn = saverxn
         # Switch for printing make-movie.tcl ; this is not necessary and may be deprecated soon
         self.Render = False
-        # Boring molecules to be excluded from coloring (by empirical formula)
+        # Known molecules to be excluded from coloring (by empirical formula)
         # Note: Isomers formed later are still considered interesting.  This is a hack.
-        self.BoringFormulas = set(boring)
-        self.BoringIsomerIdxs = set()
-        # Disallow certain molecules from being in the TimeSeries.
-        self.DisallowedFormulas = set(disallow)
-        if printlvl >= 1: print self.DisallowedFormulas, "is disallowed"
+        self.KnownFormulas = set(known)
+        # Exclude certain molecules from being counted in any reaction event
+        self.ExcludedFormulas = set(exclude)
+        if printlvl >= 1 and len(self.ExcludedFormulas) > 0: print self.ExcludedFormulas, "is excluded from being part of any reaction"
         # The print level (control the amount of printout)
         self.printlvl = printlvl
         # List of favorite colors for VMD coloring (excluding reds)
         self.CoolColors = [23, 32, 11, 19, 3, 13, 15, 27, 22, 6, 4, 12, 7, 9, 10, 28, 17, 21, 26, 24, 18]
-        # Molecules that live for at least this long (x stride) will be colored in VMD.
+        # Molecules that live for at least this long will be colored in VMD.
         # Also, molecules that vanish for (less than) this amount of time will have their time series filled in.
         self.LearnTime = learntime
         if padtime != 0:
             self.PadTime = padtime
         else:
-            self.PadTime = self.LearnTime/4
-        # Hidden Markov Model settings, look at Rectify function
-        self.metastability = metastability
-        self.pcorrectemission = pcorrectemit
+            self.PadTime = self.LearnTime
         # Whether to extract molecules to neutralize the system
         self.neutralize = neutralize
+        # Bond order threshold
+        self.boThre = bothre
+        # Keep time series that come within this factor of the threshold
+        self.sparsePad = 1.2
+        
+        #==========================#
+        #   Load in the XYZ file   #
+        #==========================#
+        if xyzin == None:
+            raise Exception('Nanoreactor must be initialized with an .xyz file as the first argument')
+        self.timing(super(Nanoreactor, self).__init__, "Loading molecule", xyzin)
+            
+        #===============================#
+        #   Load charge and spin data   #
+        #===============================#
+        if qsin != None and os.path.exists(qsin):
+            QS = self.timing(Molecule, "Loading charge and spin populations", qsin, ftype="xyz")
+            QSarr = np.array(QS.xyzs)
+            self.Charges = QSarr[:, :, 0]
+            self.Spins = QSarr[:, :, 1]
+        else:
+            self.Charges = np.array([[0 for i in range(self.na)] for j in range(len(self))])
+            self.Spins = np.array([[0 for i in range(self.na)] for j in range(len(self))])
+            
+        #==========================#
+        #   Load bond order data   #
+        #==========================#
+        self.boHave = False
+        if boin != None and os.path.exists(boin) and bothre > 0.0:
+            self.boHave = True
+            self.boSparse = self.timing(load_bondorder, "Loading pairwise bond orders", boin, bothre/self.sparsePad, len(self))
+        elif bothre > 0.0:
+            raise RuntimeError('To use bond order threshold, must provide bond order list via "boin" argument')
+        
+        #=====================#
+        #   Load properties   #
+        #=====================#
+        if os.path.exists(properties):
+            if dt_fs != 0.0:
+                raise RuntimeError("%s exists, don't provide a time step" % properties)
+            props = np.loadtxt('properties.txt')
+            keys = open('properties.txt').readline().split()[1:]
+            self.propDict = OrderedDict([(keys[i], props[:,i]) for i in range(len(keys))])
+            self.dt_fs = self.propDict['Time(fs)'][1]-self.propDict['Time(fs)'][0]
+        else:
+            if dt_fs == 0.0:
+                raise RuntimeError("%s doesn't exist, provide a nonzero time step" % properties)
+            self.dt_fs = dt_fs
+        self.LearnTime = int(self.LearnTime / self.dt_fs)
+        self.PadTime = int(self.PadTime / self.dt_fs)
+            
+        if self.printlvl >= 0: print "Done loading files"
+        print "The simulation timestep is %.1f fs" % self.dt_fs
+        
         #==========================#
         #   Initialize Variables   #
         #==========================#
-        # If the number of frames is too big, reduce it here
-        if self.Frames > self.ns:
-            self.Frames = self.ns
-        # Replace default radii with custom radii.
-        for i in range(0, len(radii), 2):
-            atom_symbol = radii[i]
-            custom_rad = float(radii[i+1])
-            Radii[Elements.index(atom_symbol)-1] = custom_rad
-            print "Custom covalent radius for %2s : %.3f" % (atom_symbol, custom_rad) 
-        # Create an atom-wise list of covalent radii.
-        R = np.array([(Radii[Elements.index(i)-1] if i in Elements else 0.0) for i in self.elem])
-        # Dictionary of how long each molecule lives.
-        self.TimeSeries = OrderedDict()
-        # List of unique isomers.
-        self.Isomers = []
-        # Dictionary that aggregate isomers
-        self.isomer_ef_iidx_dict = defaultdict(list)
+        # An iterator over all atom pairs, for example: [[0,1],[0,2],[0,3],[1,2],[1,3],[2,3]]
+        self.AtomIterator = np.array(list(itertools.combinations(range(self.na),2)))
         # Set of isomers that are RECORDED.
         self.Recorded = set()
         # A time-series of atom-wise isomer labels.
         self.IsoLabels = []
-        # A time series of VMD-formatted bond specifications.
-        self.BondLists = []
-        # A time series of lists of bond lengths.
-        # self.BondLengths = []
-        # A time series of the number of molecules.
-        self.NumMols = []
-        # Robert's testing stuff for the Viterbi algorithm.
-        self.TestVit = False
-        self.GidSets = []
-        self.CodeBook = []
-        # An iterator over all atom pairs, for example: [[0,1],[0,2],[0,3],[1,2],[1,3],[2,3]]
-        self.AtomIterator = np.array(list(itertools.combinations(range(self.na),2)))
+        if self.boHave:
+            self.boFiltered = self.timing(self.tsFilter, "Filtering bond order time series", self.boSparse, self.boThre, 100, 'bo', 'plot_bo.pdf' if plot else None)
+        else:
+            # Replace default radii with custom radii.
+            for i in range(0, len(radii), 2):
+                atom_symbol = radii[i]
+                custom_rad = float(radii[i+1])
+                Radii[Elements.index(atom_symbol)-1] = custom_rad
+                print "Custom covalent radius for %2s : %.3f" % (atom_symbol, custom_rad)
+            # Measure interatomic distances.
+            self.dxSparse, self.dxThre = self.timing(self.measureDistances, "Measuring interatomic distances", self.sparsePad, mindist)
+            self.dxFiltered = self.timing(self.tsFilter, "Filtering distance time series", self.dxSparse, self.dxThre, 100, 'dx', 'plot_dx.pdf' if plot else None)
+        # self.global_graphs : A list of all possible ways the atoms are connected in the whole system, consisting of a list of 2-tuples.
+        # self.gg_frames : An OrderedDict that maps start_time : (index in self.global_graphs, end_time)
+        # self.BondLists : A time series of VMD-formatted bond specifications for each frame in the trajectory.
+        self.global_graphs, self.gg_frames, self.BondLists = self.timing(self.makeGlobalGraphs, "Making global graphs",
+                                                                         self.boFiltered if self.boHave else self.dxFiltered,
+                                                                         self.boThre if self.boHave else self.dxThre,
+                                                                         'bo' if self.boHave else 'dx')
+        #========================#
+        #| Make molecule graphs #|
+        #========================#
+        # self.Isomers : List of MyG() graph objects for all of the isomers found in the system.
+        #                "Isomer index" refers to the position of the isomer in this list.
+        # self.MolIDs  : List of molecule IDs for all molecules found in the system such as '117-121,138:123'
+        #                (i.e. list of atoms in 'comma-dash' format:isomer index).
+        #                "Molecule index" refers to the position of the molecule in this list.
+        # self.TimeSeries : Ordered dictionary that maps molecule ID to time series data for that molecule.
+        # self.traj_iidx : Array that maps (frame, atom) to the isomer index of that atom
+        # self.traj_midx : Array that maps (frame, atom) to the molecule index of that atom
+        # self.traj_stable : Array that maps (frame, atom) to whether the molecule containing this atom is currently stable
+        # self.known_iidx : List of isomers that are 'known', i.e. matching user-provided empirical formulas and excluded from coloring
+        self.Isomers, self.MolIDs, self.TimeSeries, self.traj_iidx, self.traj_midx, self.traj_stable, self.known_iidx = self.timing(self.makeMoleculeGraphs, "Making molecule graphs")
+        self.IsomerData, self.traj_color = self.timing(self.analyzeIsomers, "Analyzing isomers")
+
+        #========================#
+        #| Find reaction events #|
+        #========================#
+        # self.EventIDs : List of reaction event IDs such as '5812-5921:10,133-135,150-151,220'
+        #                 (i.e. starting and ending frames, inclusive of endpoints:list of atoms)
+        # self.Events : Ordered dictionary that maps reaction event IDs to relevant information such as:
+        #               the list of molecule IDs that are involved and a "chemical equation" string
+        self.EventIDs, self.Events = self.timing(self.findReactionEvents, "Finding reaction events")
+
+    def timing(self, func, msg, *args, **kwargs):
+        """
+        Wrapper function that prints out timing information for a function or method.
+        (intended to be called by the constructor)
+        
+        Parameters
+        ----------
+        func : function or method
+            The function that's being wrapped
+        msg : string
+            String to be printed before the function call
+        *args, **kwargs : 
+            Positional and keyword arguments expected by the function
+        """
+        if self.printlvl >= 0:
+            print msg + " ...",
+            t0 = time.time()
+        ret = func(*args, **kwargs)
+        if self.printlvl >= 0:
+            print "%.3f s" % (time.time()-t0)
+        return ret
+
+    def measureDistances(self, pad, mindist=1.0):
+        """
+        Measure interatomic distances.  Only keep timeseries whose minimum values
+        are below the distance threshold times (pad).  Distance threshold is determined
+        by the sum of covalent radii of the atom pair times (Fac).
+        (intended to be called by the constructor)
+
+        Parameters
+        ----------
+        pad : float
+            Keep timeseries whose minimum value is (pad) times the distance threshold.
+        mindist : float
+            Below this distance all atom pairs are considered to be bonded.
+        
+        Returns
+        -------
+        dxSparse : OrderedDict 
+            Dictionary that maps zero-indexed atom pairs (a1, a2) to numpy array
+            containing interatomic distances between a1, a2 for each frame. 
+            Keys only include a2 > a1.
+        dxThre : OrderedDict 
+            Dictionary that maps zero-indexed atom pairs (a1, a2) to distance
+            threshold between a1, a2 for each frame.
+        """
+        # Create an atom-wise list of covalent radii.
+        R = np.array([(Radii[Elements.index(i)-1] if i in Elements else 0.0) for i in self.elem])
         # A list of threshold distances for each atom pair for determining whether two atoms are bonded
         self.BondThresh = np.array([max(mindist,(R[i[0]] + R[i[1]]) * self.Fac) for i in self.AtomIterator])
-        # Build graphs from the distance matrices (this is the bottleneck)
-        if self.printlvl >= 0: print "Building graphs..."
-        t0 = time.time()
-        for i in range(0, self.Frames, self.stride):
-            if not self.BO: self.dxij = contact.atom_distances(np.array([self.xyzs[i]]),self.AtomIterator)
-            if self.printlvl >= 0: print "\rFrame %-7i:" % i,
-            if self.printlvl >= 1 and i>0 and i%1000==0:
-                print("%.2f s for past 1000 frames, %i isomers" % (time.time() - t0, len(self.TimeSeries)))
-                t0 = time.time()
-            self.AddFrame(i)
-        if self.printlvl >= 0: print
-        if self.printlvl >= 0: print "Done building graphs."
-        # Determine whether the Output method creates a new xyz file.
-        if xyzout.upper() != 'NONE':
-            self.fout = xyzout
-            self.bWrite = True
-        else:
-            self.fout = xyzin
-            self.bWrite = False
-        self.RectifyTimeSeries()
-        # Create a mapping from isomer number to VMD color.
-        self.ColorIdx = self.Analyze()
-
-    def AddFrame(self, frame):
-        RawG = self.MakeGraphFromXYZ(frame)
-        MolGphs = [RawG.subgraph(c).copy() for c in nx.connected_components(RawG)]
-        # MolGphs = nx.connected_component_subgraphs(RawG)
-        ilabels = [0 for i in range(self.na)]
-        nowgids = []
-        efs = []
-        bonds = [[] for i in range(self.na)]
-        NumMols = 0
-        for G in MolGphs:
-            G.__class__ = MyG
-            NumMols += 1
-            ef = G.ef()
-            # iidx means Isomer Index.
-            # compare to the Graph that has the same Empirical Formula
-            for i in self.isomer_ef_iidx_dict[ef]:
-                if self.Isomers[i] == G:
-                    iidx = i
-                    break
-            else:
-                iidx = len(self.Isomers)
-                self.Isomers.append(G)
-                self.isomer_ef_iidx_dict[ef].append(iidx)
-            if (ef in self.BoringFormulas or wildmatch(ef, self.BoringFormulas) or (frame == 0 and 'ALL' in [i.upper() for i in self.BoringFormulas])):
-                self.BoringIsomerIdxs.add(iidx)
-            # if G not in self.Isomers:
-            gid = G.AStr()+":%i" % iidx
-            nowgids.append(gid)
-            efs.append(ef)
-            if gid not in self.TimeSeries and ef not in self.DisallowedFormulas:
-                self.TimeSeries[gid] = {'graph':G,'iidx':iidx,'raw_signal':encode([0 for i in range(frame)])}
-            for j in G.nodes():
-                ilabels[j] = iidx
-        if self.printlvl >= 3:
-            efuniq = []
-            pops = []
-            for i in set(efs):
-                efuniq.append(i)
-                pops.append(sum(np.array(efs)==i))
-            MList = [(efuniq[i], pops[i]) for i in np.argsort(np.array(pops))[::-1]]
-            # print "\r%10s : %-10s" % ("Molecule","Count")
-            if frame == 0:
-                fout = open('ef.txt','w')
-            else:
-                fout = open('ef.txt','a')
-            sout = ', '.join(["%s" % ("%i(" % i[1] if i[1] > 1 else "") + subscripts(i[0]) + (")" if i[1] > 1 else "") for i in MList])
-            print sout
-            print >> fout, sout.encode('utf8')
-            fout.close()
-            # print >> fout, u"%s" % subscripts(sout)
-            # for i in MList:
-            #     print "%10s : %-10i" % (i[0],i[1])
-
-        # build data for Viterbi algorithm.
-        if self.TestVit:
-            GidSet = set(nowgids)
-            try:
-                code = self.GidSets.index(GidSet)
-            except:
-                code = len(self.GidSets)
-                self.GidSets.append(GidSet)
-            self.CodeBook.append(code)
-
-        alive_gids = set(nowgids)
-        dead_gids = set(self.TimeSeries.keys()) - set(nowgids)
-
-        for gid in alive_gids:
-            ts = self.TimeSeries[gid]
-            ts['raw_signal'] = append_e(ts['raw_signal'], 1)
-            if self.printlvl >= 1 and ts['raw_signal'][-1][0] == self.LearnTime:
-                atom_str, iidx_str = split_gid(gid)
-                ef_str = ts['graph'].ef()
-                ts_str = ''.join([(u"/\u203E%i\u203E\\" % t[0]) if t[1] else ('_%i_' % t[0]) for t in ts['raw_signal']])
-                print (u"Up time   %i  : formula %s index %s atoms %s series %s" % (self.LearnTime, ef_str, iidx_str, atom_str, ts_str)).encode('utf-8')
-                
+        i = 0
+        # Atom pair batch size for computing interatomic distance.
+        # The maximum array size is batch_size * traj_length
+        # (Avoids n_atom * n_atom * traj_length array)
+        batch = 1000
+        dxSparse = OrderedDict()
+        dxThre = OrderedDict()
+        # Build graphs from the distance matrices
+        while i < len(self.AtomIterator):
+            j = min(i+batch, len(self.AtomIterator))
+            dxij = contact.atom_distances(np.array(self.xyzs),self.AtomIterator[i:j])
+            dxmin = np.min(dxij, axis=0)
+            thre = self.BondThresh[i:j]
+            for k in np.where(dxmin < (thre*pad))[0]:
+                dxSparse[tuple(self.AtomIterator[i+k])] = dxij[:, k].copy()
+                dxThre[tuple(self.AtomIterator[i+k])] = self.BondThresh[i+k]
+            i += batch
+        return dxSparse, dxThre
             
-        for gid in dead_gids:
-            ts = self.TimeSeries[gid]
-            ts['raw_signal'] = append_e(ts['raw_signal'], 0)
-            if self.printlvl >= 1 and ts['raw_signal'][-1][0] == self.LearnTime:
-                atom_str, iidx_str = split_gid(gid)
-                ef_str = ts['graph'].ef()
-                ts_str = ''.join([(u"/\u203E%i\u203E\\" % t[0]) if t[1] else ('_%i_' % t[0]) for t in ts['raw_signal']])
-                print (u"Down time %i  : formula %s index %s atoms %s series %s" % (self.LearnTime, ef_str, iidx_str, atom_str, ts_str)).encode('utf-8')
-            
-            # self.TimeSeries[gid]['raw_signal'] = append_e(self.TimeSeries[gid]['raw_signal'], 0)
-            # atom_str, iidx_str = split_gid(gid)
-            # ef_str = self.TimeSeries[gid]['graph'].ef()
-            # ts_str = ''.join([(u"/\u203E%i\u203E\\" % t[0]) if t[1] else ('_%i_' % t[0]) for t in self.TimeSeries[gid]['raw_signal']])
-            
-        # LPW 2019
-        # for gid in self.TimeSeries:
-        #     self.TimeSeries[gid]['raw_signal'] = append_e(self.TimeSeries[gid]['raw_signal'], 1 if gid in nowgids else 0)
-        #     if not self.TimeSeries[gid]['lock']:
-        #         # LPW note on Sep 24: I think it's unfair to require a
-        #         # continuous live-time before locking the graph ID.
-        #         # We could look at the total live-time instead. 
-        #         # LPW 2019-03-04: Actually making the change.
-        #         # LPW 2019-93-18: More aggressive locking of timeseries
-        #         LDFac = 4.0
-        #         if sum([i[0] for i in self.TimeSeries[gid]['raw_signal'] if i[1]]) == int(self.LearnTime/LDFac):
-        #         # if self.TimeSeries[gid]['raw_signal'][-1] == [self.LearnTime,True]:
-        #             if self.printlvl >= 1:
-        #                 print (u"Locking %s  : index %s atoms %s series %s" % (ef_str, iidx_str, atom_str, ts_str)).encode('utf-8')
-        #             self.TimeSeries[gid]['lock'] = True
-        #             self.IsoLocks[self.TimeSeries[gid]['iidx']] = True
-        #         if self.TimeSeries[gid]['raw_signal'][-1] == [int(LDFac*self.LearnTime),False]:
-        #             if self.IsoLocks[self.TimeSeries[gid]['iidx']] == False:
-        #                 # if self.printlvl >= 2:
-        #                 #     print "Deleting graph from isomer index"
-        #                 self.Isomers[self.TimeSeries[gid]['iidx']].Alive = False
-        #             if self.printlvl >= 2:
-        #                 print (u"Archiving %s : index %s atoms %s series %s" % (ef_str, iidx_str, atom_str, ts_str)).encode('utf-8')
-        #                 #print u"Deleting %s : atoms %s iidx %s times %s" % (ef_str, atom_str, iidx_str, ts_str)
-        #             self.TSArchive[gid] = deepcopy(self.TimeSeries[gid])
-        #             del self.TimeSeries[gid]
-        # #print "There are %i isomers" % len(self.Isomers)
+    def tsFilter(self, tsData, tsThre, freqCut, mode, plotFile=None):
+        """
+        Apply a low-pass filter to bond order or interatomic distance time series.
+        (intended to be called by the constructor)
 
-        self.NumMols.append(NumMols)
-        self.IsoLabels.append(ilabels)
-
-    def RectifyTimeSeries(self):
-        if self.TestVit:
-            print "Testing Viterbi algorithm..."
-            t1 = time.time()
-            cvit = viterbi(self.CodeBook, metastability=self.metastability, p_correct=self.pcorrectemission)
-            print 'c  ', cvit
-            t2 = time.time()
-            _vit = _viterbi(self.CodeBook, metastability=self.metastability, p_correct=self.pcorrectemission)
-            print 'py ', _vit
-            t3 = time.time()
-            svit = viterbi_skl(self.CodeBook, metastability=self.metastability, p_correct=self.pcorrectemission)
-            print 'skl', svit
-            t4 = time.time()
-            print 'c:', t2-t1, 'py:', t3-t2, 'skl:', t4-t3
-            vit = cvit[1]
-
-        if self.printlvl >= 0: print "Rectifying time series..."
-        tsnum = 0
-        for gid, ts in self.TimeSeries.items():
-            RawSignal = ts['raw_signal']
-            FilledSignal = FillGaps(ts['raw_signal'],self.LearnTime)
-            if self.TestVit:
-                ViterbiSignal = encode([gid in self.GidSets[i] for i in vit])
-            if len(encode(FilledSignal)) == 1:
-                RectifiedSignal = FilledSignal
+        Parameters
+        ----------
+        tsData : OrderedDict 
+            Dictionary that maps zero-indexed atom pairs (a1, a2) to numpy array
+            containing numerical time series data between a1, a2 for each frame. 
+        tsThre : float or OrderedDict
+            If OrderedDict, map zero-indexed atom pairs (a1, a2) to threshold value.
+            If float, use a single threshold value for all time series.
+        freqCut : float
+            Roll-off frequency in wavenumbers. 
+        mode : str
+            Pass either 'bo' or 'dx' for bond order or interatomic distance respectively.
+        plotfile : str
+            File name ending in .pdf for saving plots of raw and filtered time series.
+        
+        Returns
+        -------
+        OrderedDict
+            Same structure as tsData, with filter applied
+        """
+        tsPairs = list(tsData.keys())
+        tsArr = np.array(list(tsData.values()))
+        tsArr_lp, freqx, ft, ft_lp = low_pass_smoothing(tsArr, freqCut, self.dt_fs)
+        # The bulk of this function is actually for plotting
+        if plotFile is not None:
+            if mode == 'dx':
+                title = 'Time series of interatomic distances; lowpass filter ' + r'%i cm$^{-1}$' % freqCut
+                y1label = 'Distance (Angstrom)'
+                y1lim = [0, 5]
+                y1ticks = [1, 2, 3, 4]
+                y2fac = 1.0
+            elif mode == 'bo':
+                title = 'Time series of bond order; lowpass filter %i cm^-1' % freqCut
+                y1label = 'Bond order'
+                y1lim = [0, 1]
+                y1ticks = [0.2, 0.4, 0.6, 0.8]
+                y2fac = 0.1
             else:
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore")
-                    RectifiedSignal = Rectify(ts['raw_signal'],self.metastability,self.pcorrectemission)
-            if RectifiedSignal == None:
-                self.TimeSeries[gid]['signal'] = FilledSignal
-            else:
-                self.TimeSeries[gid]['signal'] = RectifiedSignal
-            tsnum += 1
-            if self.printlvl >= 0: print "\r%i of %i done" % (tsnum, len(self.TimeSeries)),
-            if self.printlvl >= 2:
-                print
-                print "Raw Signal:", RawSignal
-                print "Filled    :", FilledSignal
-                print "Rectified :", RectifiedSignal
-                if self.TestVit:
-                    print "Viterbi :", ViterbiSignal
-        if self.printlvl >= 0: print
-        return
-
-    def Analyze(self):
-        MaxLife = [max([longest_lifetime(self.TimeSeries[g]['signal']) for g in self.TimeSeries if self.TimeSeries[g]['iidx'] == u] + [0]) for u in range(len(self.Isomers))]
-        BornTimes = []
-        Indices = []
-        for Life, Gids in zip(MaxLife, [[g for g in self.TimeSeries if self.TimeSeries[g]['iidx'] == u] for u in range(len(self.Isomers))]):
-            Born = False
-            for gid in Gids:
-                b, e = longest_segment(self.TimeSeries[gid]['signal'])
-                L = e - b
-                if L == Life:
-                    BornTimes.append(b)
-                    Born = True
-                    Indices.append(np.array([int(i) for i in gid.split(':')[0].split(',')]))
-                    break
-            if not Born:
-                BornTimes.append(None)
-                Indices.append(None)
-        ColorIdx = [8 for i in range(len(self.Isomers))]
-        CoolNum = 0
-        ColorNum = 0
-        self.CoolGraphs = []
-        #for i in np.argsort(MaxLife)[::-1]:
-        #print MaxLife
-        #print BornTimes
-        for i in np.argsort(BornTimes):
-            I = self.Isomers[i]
-            #I = ValidIso[i]
-            if self.printlvl >= 1 and MaxLife[i] > 0: print "Isomer %3i %10s : Max Life %i" % (i, "("+I.ef()+")", MaxLife[i]),
-            # if I.ef() in self.BoringFormulas:
-            if i in self.BoringIsomerIdxs:
-                self.Recorded.add(i)
-                ColorIdx[i] = 8
-                if self.printlvl >= 1 and MaxLife[i] > 0: print "(Boring!)"
-            elif MaxLife[i] == 0:
-                if self.printlvl >= 0: print "\r",
-            elif MaxLife[i] < self.LearnTime:
-                ColorIdx[i] = 1
-                if self.printlvl >= 1: print "(Short-lived)"
-            else:
-                if self.printlvl == 0: print "Isomer %3i %10s : Max Life %i" % (i, "("+I.ef()+")", MaxLife[i]),
-                # if I.ef() == 'H':
-                #     ColorIdx[i] = 8
-                #     if self.printlvl >= 0: print "(Interesting; hydrogen atom)"
-                # else:
-                ColorIdx[i] = self.CoolColors[ColorNum % len(self.CoolColors)]
-                if self.printlvl >= 0: print "(Interesting; color %s)" % ColorNames[self.CoolColors[ColorNum % len(self.CoolColors)]],
-                ColorNum += 1
-                self.Recorded.add(i)
-                if self.extract:
-                    #MidFrame = int(BornTimes[i] + MaxLife[i]/2)
-                    FrameSel = np.arange(BornTimes[i],BornTimes[i]+MaxLife[i])
-                    Slice = self.atom_select(Indices[i])[FrameSel]
-                    #Slice.comms = ["Extracted from %s: formula %s atoms %s isomer_id %i frame %s charge % .3f sz % .3f sz^2 % .3f" % (I.ef(), commadash(Indices[i]), i, str(frame), sum(self.Charges[frame][Indices[i]]), sum(self.Spins[frame][Indices[i]]), sum([j**2 for j in self.Spins[frame][Indices[i]]])) for frame in FrameSel]
-                    Slice.comms = ["Product: formula %s atoms %s frame %s charge %+.3f sz %+.3f sz^2 %.3f" % (I.ef(), commadash(Indices[i]), str(frame), sum(self.Charges[frame][Indices[i]]), sum(self.Spins[frame][Indices[i]]), sum([j**2 for j in self.Spins[frame][Indices[i]]])) for frame in FrameSel]
-                    Slice.align_center()
-                    Slice.write("extract_%03i.xyz" % CoolNum)
-                    self.CoolGraphs.append(I)
-                    if self.printlvl >= 0: print " - saving to extract_%03i.xyz" % CoolNum, 
-                #self.xyzs[BornTimes[i] + i/2]
-                if self.printlvl >= 0: print
-                CoolNum += 1
-        return ColorIdx
-
-    def PullAidx(self, frame, atoms, ThreshTime, fwd=True):
-        Incr = 10
-        GoodTime = 0
-        while True:
-            Valid = False
-            Gids = []
-            Isos = []
-            Answer = set([])
-            # The frame is strictly NOT ALLOWED if any atoms belong in the DisallowedFormulas.
-            # This is because if an atom belongs to the DisallowedFormulas, the output set can be smaller than the input set.
-            if not any([self.Isomers[self.IsoLabels[frame][a]].ef() in self.DisallowedFormulas for a in atoms]):
-                for gid,ts in self.TimeSeries.items():
-                    if ts['iidx'] not in self.Recorded: continue
-                    if element(ts['signal'], frame) and any([i in ts['graph'].L() for i in atoms]):
-                        # if element(ts['signal'], frame) != element(ts['raw_signal'], frame): 
-                        #     if self.printlvl >= 2:
-                        #         print "The filtered signal doesn't match the raw signal in this frame"
-                        #     break
-                        NewSet = set(ts['graph'].L())
-                        if len(Answer.intersection(NewSet)) > 0:
-                            if self.printlvl >= 3:
-                                print "Double-counting has occurred"
-                            break
-                        Answer.update(NewSet)
-                        Gids.append(gid)
-                        Isos.append(ts['iidx'])
-                if Answer.issuperset(set(atoms)):
-                    Valid = True
-                    GoodTime += Incr
-                    if GoodTime >= ThreshTime:
-                        return sorted(list(Answer)), Gids, frame, sorted(Isos)
+                raise RuntimeError('mode %s not recognized' % mode)
+            fout = PdfPages(plotFile)
+    
+            histograms = OrderedDict()
+            for i in range(0, len(tsArr)):
+                if self.printlvl >= 2 and i%100 == 0: print "Plotting timeseries %i/%i" % (i, len(tsArr))
+                fign = i%10
+                if fign == 0:
+                    fig = plt.figure()
+                    fig.set_size_inches(8, 8)
+                # Plot raw and filtered time series on left panels
+                ax1 = fig.add_axes([0.07, 0.87-0.09*fign, 0.37, 0.09])
+                times = np.arange(len(self))*self.dt_fs
+                ax1.plot(times, tsArr[i], color='#1e90ff', linewidth=0.75)
+                ax1.plot(times, tsArr_lp[i], color='#ff6302', linewidth=0.75)
+                if isinstance(tsThre, OrderedDict):
+                    thre = tsThre[tsPairs[i]]
                 else:
-                    if self.printlvl >= 3:
-                        print "The accumulated atoms are not a superset of the input atoms - accumulated = %s, input = %s" % (commadash(Answer),commadash(atoms))
-            else:
-                if self.printlvl >= 2:
-                    plist = [self.Isomers[self.IsoLabels[frame][a]].ef() in self.DisallowedFormulas for a in atoms]
-                    print "Found some atoms in DisallowedFormulas:", plist
-            if not Valid:
-                GoodTime = 0
-            if fwd:
-                if self.printlvl >= 0: print "\rScanning forward, now on frame %i" % frame,
-                frame += Incr
-            else:
-                if self.printlvl >= 0: print "\rScanning backward, now on frame %i" % frame,
-                frame -= Incr
-            if frame < 0 or frame >= self.Frames:
-                return None, None, None, None
+                    thre = tsThre
+                # Dotted horizontal line showing threshold
+                ax1.axhline(thre, color='k', linestyle='--', linewidth=0.75)
+                ax1.set_xlim([min(times), max(times)])
+                # If using bond orders, set separate limits for each time series
+                if mode == 'bo':
+                    if max(tsArr[i]) > 3.0:
+                        raise RuntimeError('Did not expect BO above 3.0')
+                    elif max(tsArr[i]) > 2.0:
+                        y1lim = [0, 3]
+                        y1ticks = [1, 2]
+                    elif max(tsArr[i]) > 1.0:
+                        y1lim = [0, 2]
+                        y1ticks = [0.5, 1, 1.5]
+                    else:
+                        y1lim = [0, 1]
+                        y1ticks = [0.2, 0.4, 0.6, 0.8]
+                ax1.set_ylim(y1lim)
+                ax1.set_yticks(y1ticks)
+                # Plot spectrum of the BO time series on the right panels
+                ax2 = fig.add_axes([0.58, 0.87-0.09*fign, 0.37, 0.09])
+                ax2.plot(freqx, np.abs(ft[i]), color='#1e90ff', linewidth=0.5)
+                ax2.plot(freqx, np.abs(ft_lp[i]), color='#ff6302', linewidth=0.5)
+                # Dotted vertical line showing frequency cutoff
+                ax2.axvline(freqCut, color='k', linestyle='--', linewidth=0.75)
+                ai, aj = tsPairs[i]
+                ax2.text(0.9, 0.8, '%s-%s %i-%i' % (self.elem[ai], self.elem[aj], ai+1, aj+1),
+                         horizontalalignment='right', verticalalignment='center', transform=ax2.transAxes)
+                ax2.set_xlim([0, freqCut*4])
+                ax2.set_ylim([0, y2fac*ft[i].shape[0]])
+                ax2.set_yticks([])
+                
+                # Plot histogram of the bond order / distance for this atom pair
+                ax3 = fig.add_axes([0.44, 0.87-0.09*fign, 0.06, 0.09])
+                # Construct histograms of bond order or distance data for each element pair
+                # Do this only once for each element pair because it's time-consuming.
+                tsElem = tuple(sorted([self.elem[tsPairs[i][0]], self.elem[tsPairs[i][1]]]))
+                if tsElem not in histograms:
+                    tsSame = np.array([k for k, j in enumerate(tsPairs) if
+                                       ((self.elem[j[0]], self.elem[j[1]]) == tsElem or
+                                        (self.elem[j[1]], self.elem[j[0]]) == tsElem)])
+                    tsHist = (tsArr[tsSame,:]+(tsArr[tsSame,:]==0.0)*1e3).flatten()
+                    if mode == 'bo':
+                        tsMax = int(np.max(tsArr[tsSame,:]))+1
+                        heights, bins = np.histogram(tsHist, bins=72, range=[0, tsMax], density=True)
+                    elif mode == 'dx':
+                        heights, bins = np.histogram(tsHist, bins=72, weights=tsHist**-2, range=y1lim, density=True)
+                    histograms[tsElem] = (bins[:-1]+(bins[1]-bins[0])/2, heights)
+                    
+                # To plot a pre-computed histogram, use bin midpoints as x data and heights as y data
+                histx, histy = histograms[tsElem]
+                nbin = len(np.where(histx<y1lim[1])[0])
+                ax3.hist(histx[:nbin], bins=nbin, weights=histy[:nbin], log=True, range=y1lim, color='#6BE140',
+                         edgecolor='#6BE140', linewidth=0, orientation='horizontal')
+                ax3.set_ylim(y1lim)
+                ax3.get_xaxis().set_visible(False)
+                ax3.get_yaxis().set_visible(False)
+                ax3.axhline(thre, color='k', linestyle='--', linewidth=0.75)
+                ax3.text(1.1, thre/ax3.get_ylim()[1], '%.2f' % thre, horizontalalignment='left',
+                         verticalalignment='center', transform=ax3.transAxes)
+                # Final formatting
+                if fign == 9 or i == tsArr.shape[0]-1:
+                    fig.suptitle(title, y=0.985)
+                    ax1.set_xlabel('Time (fs)')
+                    ax2.set_xlabel('Frequency (cm^-1)')
+                    fout.savefig(fig, dpi=600)
+                else:
+                    if fign == 5:
+                        ax1.set_ylabel(y1label)
+                        ax2.set_ylabel('Intensity')
+                    ax1.tick_params(axis='x', direction='in', length=2)
+                    ax2.tick_params(axis='x', direction='in', length=2)
+                    ax1.set_xticklabels([])
+                    ax2.set_xticklabels([])
+            fout.close()
+        return OrderedDict([(k, tsArr_lp[i, :]) for i, k in enumerate(tsPairs)])
 
-    def WriteChargeSpinLabels(self, selection):
+    def makeGlobalGraphs(self, tsData, tsThre, mode):
+        """
+        Create list of global pairwise connectivity graphs.
+        (intended to be called by the constructor)
+
+        Parameters
+        ----------
+        tsData : OrderedDict 
+            Dictionary that maps zero-indexed atom pairs (a1, a2) to numpy array
+            containing numerical time series data between a1, a2 for each frame. 
+        tsThre : float or OrderedDict
+            If OrderedDict, map zero-indexed atom pairs (a1, a2) to threshold value.
+            If float, use a single threshold value for all time series.
+        mode : str
+            If pass 'dx', bonded when distances are lower than threshold
+            If pass 'bo', bonded when bond orders are greater than threshold
+        
+        Returns
+        -------
+        global_pairGraphs : list
+            Each element in global_pairGraphs is a list of 2-tuples (bonds) corresponding to
+            one set of atomic connectivities in the whole system
+        gg_frames : OrderedDict
+            Mapping of frame numbers to 2-tuple containing (corresponding entry in global_pairGraphs, next frame)
+        """
+        tsPairs = np.array(tsData.keys())
+        tsArr = np.array(list(tsData.values()))
+        
+        # Convert tsThre to array if needed
+        if type(tsThre) is OrderedDict:
+            tsThre = np.array(list(tsThre.values()))[:, np.newaxis]
+        elif type(tsThre) is not float:
+            raise RuntimeError('tsThre wrong type')
+
+        # Make trajectory of bonded atom pairs
+        if mode == 'dx':
+            bonded = tsArr < tsThre
+        elif mode == 'bo':
+            bonded = tsArr > tsThre
+        else:
+            raise RuntimeError('mode may only be dx or bo')
+
+        # List of global connectivity graphs. The idea is that we should only need to
+        # store and analyze the distinct connectivity graphs, which should be smaller
+        # in number than the # of frames in the whole trajectory.
+        globalGraphs = []
+        lastGraph = None
+        # OrderedDict that maps (the frame number where a global graph first appears) to (global graph index)
+        gg_frames = OrderedDict()
+        gg_idx = 0
+        for i in range(len(self)):
+            # List of atom pairs indices that are bonded (pointing to atom pairs in tsPairs).
+            gg = tuple(np.where(bonded[:, i])[0])
+            # Skip if the graph hasn't changed since the last frame (should happen often)
+            if (gg == lastGraph):
+                continue
+            # Loop over the existing global graphs that we have
+            for igg in range(len(globalGraphs)):
+                # The global graph that just appeared is a repeat of a previous one
+                if globalGraphs[igg] == gg:
+                    gg_idx = igg
+                    if self.printlvl >= 2:
+                        print "frame %i repeats global graph %i" % (i, gg_idx),
+                    gg_frames[i] = gg_idx
+                    break
+            else:
+                # The global graph that just appeared has not been seen previously
+                gg_idx = len(globalGraphs)
+                if self.printlvl >= 2:
+                    print "frame %i found new global graph: %i" % (i, gg_idx),
+                globalGraphs.append(gg)
+                gg_frames[i] = gg_idx
+            if i > 0 and self.printlvl >= 2:
+                added = ['%i-%i' % (tsPairs[i, 0]+1, tsPairs[i, 1]+1) for i in sorted(list(set(gg) - set(lastGraph)))]
+                removed = ['%i-%i' % (tsPairs[i, 0]+1, tsPairs[i, 1]+1) for i in sorted(list(set(lastGraph) - set(gg)))]
+                if len(added) > 0: print "added", ','.join(added),
+                if len(removed) > 0: print "removed", ','.join(removed),
+                print
+            lastGraph = gg
+
+        # Make list of global graphs that actually consists of lists of atom pairs
+        # (rather than atom pair indices in tsPairs)
+        tsPairs = [tuple(a) for a in tsPairs]
+        global_pairGraphs = [[tsPairs[i] for i in g] for g in globalGraphs]
+        # Now gg_frames should map (the frame number where the global graph first appears)
+        # to a 2-tuple: (the index to the global graph, the frame number where the next global graph appears)
+        for i, (k, v) in enumerate(gg_frames.items()):
+            if i == len(gg_frames)-1:
+                gg_frames[k] = (v, len(self))
+            else:
+                gg_frames[k] = (v, list(gg_frames.keys())[i+1])
+                
+        # Build the BondLists, a "trajectory of bonded pairs" for writing bonds.dat for visualization.
+        BondLists = []
+        for currFrame, (ggId, nextFrame) in gg_frames.items():
+            bonds = [[] for i in range(self.na)]
+            for (ii, jj) in global_pairGraphs[ggId]:
+                bonds[ii].append(jj)
+                bonds[jj].append(ii)
+            bondTcl = bondlist_tcl(bonds)
+            for i in range(nextFrame-currFrame):
+                BondLists.append(bondTcl)
+                
+        return global_pairGraphs, gg_frames, BondLists
+
+    def makeMoleculeGraphs(self):
+        """
+        Create molecule graphs from global graphs.
+        (intended to be called by the constructor)
+
+        Returns
+        -------
+        Isomers : list
+            List of unique isomers (molecular graphs). Two graphs are isomorphic if the atomic symbols and connectivities match.
+            The position of an isomer within this list is called the "isomer index".
+            Each element in this list is a MyG instance containing the atomic symbols, connectivity, and atom numbers
+            (the atom number are not so relevant because they are not part of the isomorphism)
+
+        MolIDs : list
+            List of unique molecules. These are more specific than Isomers because they are further distinguished using atom numbers.
+
+        TimeSeries : OrderedDict
+            Dictionary that maps molecule IDs to relevant data for that molecule.
+            Keys within TimeSeries are:
+            ----
+            graph : MyG
+                Graph of the molecule ID, including atomic symbols, connectivity, and atom numbers
+            iidx : int
+                Isomer index of the graph
+            midx : int
+                Molecule index of the graph
+            raw_signal : np.ndarray
+                Existence time series containing zeros and ones
+            stable_times : OrderedDict
+                Dictionary that maps start_time to interval_length for segments of the existence
+                time series in excess of LearnTime
+            ----
+            The position of a Molecule ID in this OrderedDict is called the "molecule index"
+
+        traj_iidx : np.ndarray
+            Array that maps (frame, atom number) to isomer index
+
+        traj_midx : np.ndarray
+            Array that maps (frame, atom number) to molecule index
+
+        traj_stable : np.ndarray
+            Array that specifies whether (frame, atom number) is part of a stable molecule
+
+        known_iidx : set
+            These isomer indices are deemed "known" because they match a user-supplied filter, and will not
+            be highlighted in the output visualization
+        """
+        # Initialize variables
+        Isomers = []
+        TimeSeries = OrderedDict()
+        known_iidx = set()
+        traj_midx = np.zeros((len(self), self.na), dtype='int')
+        traj_iidx = np.zeros((len(self), self.na), dtype='int')
+        traj_stable = np.zeros((len(self), self.na), dtype='int')
+        
+        # Sanity checking: Each entry in traj_midx should be set once and only once when looping over molecule IDs
+        traj_midx -= 1
+        
+        # Dictionary that aggregate isomers, used for optimization
+        isomer_ef_iidx_dict = defaultdict(list)
+        
+        for igg, globalGraph in enumerate(self.global_graphs):
+            # Get "alive times" for this global graph
+            aliveIntvls = []
+            for ggFrame, (ggId, nextFrame) in self.gg_frames.items():
+                if igg == ggId:
+                    aliveIntvls.append((ggFrame, nextFrame))
+            # Build the NetworkX graph object for this global graph and split it into
+            # connected subgraphs (molecules)
+            RawG = MyG()
+            for i, a in enumerate(self.elem):
+                RawG.add_node(i)
+                if parse_version(nx.__version__) >= parse_version('2.0'):
+                    nx.set_node_attributes(RawG,{i:a}, name='e')
+                else:
+                    nx.set_node_attributes(RawG,'e',{i:a})
+            for (ii, jj) in globalGraph:
+                RawG.add_edge(ii, jj)
+            MolGphs = [RawG.subgraph(c).copy() for c in nx.connected_components(RawG)]
+            for G in MolGphs:
+                G.__class__ = MyG
+                ef = G.ef()
+                # iidx means Isomer Index. Compare to the Graph that has the same Empirical Formula
+                for i in isomer_ef_iidx_dict[ef]:
+                    if Isomers[i] == G:
+                        iidx = i
+                        break
+                else:
+                    iidx = len(Isomers)
+                    Isomers.append(G)
+                    isomer_ef_iidx_dict[ef].append(iidx)
+                # Check if the empirical formula of this graph matches the known formulas provided by user
+                if (ef in self.KnownFormulas or wildmatch(ef, self.KnownFormulas) or (igg == 0 and 'ALL' in [i.upper() for i in self.KnownFormulas])):
+                    known_iidx.add(iidx)
+                # Create the molecule ID and check if it's in the dictionary
+                molID = G.AStr()+":%i" % iidx
+                if molID not in TimeSeries:
+                    raw_signal = np.zeros(len(self), dtype=int)
+                    # This line is very important: it creates the entry in the TimeSeries dictionary
+                    # that is the main repository of information for molecular graphs.
+                    TimeSeries[molID] = OrderedDict([('graph', G), ('iidx', iidx), ('midx', len(TimeSeries)),
+                                                     ('raw_signal', raw_signal), ('stable_times', OrderedDict())])
+                else:
+                    raw_signal = TimeSeries[molID]['raw_signal']
+                for i, j in aliveIntvls: raw_signal[i:j] = 1
+
+        MolIDs = list(TimeSeries.keys())
+
+        for i, (molID, ts) in enumerate(TimeSeries.items()):
+            # Create self.TimeSeries[molID]["stable_times"], an OrderedDict that maps starting points of stable segments to their lengths.
+            # Populate self.traj_midx and self.traj_iidx, trajectory-like objects that store the molecule ID and isomer ID of each atom
+            frame = 0
+            atoms = np.array(ts['graph'].L())
+            for intvl, on_off in encode(ts['raw_signal']):
+                if on_off:
+                    if (traj_midx[frame:frame+intvl, atoms] != -1).any(): raise RuntimeError('traj_midx is twice assigned')
+                    traj_midx[frame:frame+intvl, atoms] = ts['midx']
+                    traj_iidx[frame:frame+intvl, atoms] = ts['iidx']
+                    if intvl > self.LearnTime:
+                        ts['stable_times'][frame] = intvl
+                        traj_stable[frame:frame+intvl, atoms] = 1
+                frame += intvl
+        if (traj_midx == -1).any(): raise RuntimeError('traj_midx is not fully assigned')
+        
+        if self.printlvl >= 2:
+            for molID in TimeSeries:
+                ts = TimeSeries[molID]
+                atom_str, iidx_str = molID.split(':')
+                ef_str = ts['graph'].ef()
+                ts_str = ''.join([(u"/\u203E%i\u203E\\" % t[0]) if t[1] else ('_%i_' % t[0]) for t in encode(ts['raw_signal'])])
+                print (u"molecule index %i formula %s iidx %s atoms %s series %s" % (MolIDs.index(molID), ef_str, iidx_str, atom_str, ts_str)).encode('utf-8')
+                
+        return Isomers, MolIDs, TimeSeries, traj_iidx, traj_midx, traj_stable, known_iidx
+
+    def allStable(self, frame, atoms, direction):
+        """
+        Given a frame, set of atoms, and a direction, scan the trajectory 
+        along the direction until all of the atoms are stable, then return
+        the frame number and the atoms that "complete" the molecules at that frame
+        (intended to be called by completeEvent() function)
+
+        Parameters
+        ----------
+        frame : int
+            Frame number to start scanning from (this frame itself is not scanned)
+        atoms : np.ndarray
+            Atoms to check stability for
+        direction : int
+            Either +1 or -1, the direction to scan in
+
+        Returns
+        -------
+        frame : int
+            First frame that contains all stable atoms in the scan direction
+        stable_mol_atoms : np.ndarray
+            The atom indices that complete the stable molecules at the returned frame
+        """
+        if direction not in [1, -1]:
+            raise RuntimeError('Direction must be +1 or -1')
+        # Scan forward or backward until a new stable frame is found
+        while True:
+            frame += direction
+            # print "Scanning %s" % ("forward" if direction > 0 else "backward"), frame
+            if frame <= 0:
+                frame = 0
+                # print "Scanned past start"
+                break
+            if frame >= len(self)-1:
+                # print "Scanned past end"
+                frame = len(self)-1
+                break
+            if self.traj_stable[frame, atoms].all():
+                break
+        # The set of molecule indices that the atoms belong to at the new stable frame
+        stable_midx = set(self.traj_midx[frame, atoms])
+        # All of the atoms belonging to the above set of molecules
+        stable_mol_atoms = sorted(list(itertools.chain(*[self.TimeSeries[self.MolIDs[i]]['graph'].L() for i in stable_midx])))
+        return frame, np.array(stable_mol_atoms)
+
+    def completeEvent(self, frame, atoms, direction):
+        """
+        The lingo of "completing" a reaction event refers to the following:
+
+        1) Start at the last frame that a molecule is stable
+        2) Follow the atoms forward in time until they all belong to stable molecules again
+        3) Find the atoms that "complete" these stable molecules at that point in time, which
+           may be a superset of the original atoms we started with
+        4) Go back to step 1 with the expanded set of atoms and search backwards until
+           all atoms belong to stable molecules
+        5) Repeat until set of atoms no longer expands
+
+        (intended to be called by findReactionEvents())
+    
+        Parameters
+        ----------
+        frame : int
+            First or last frame that a molecule is stable, 
+            the starting point for completing a reaction event
+        atoms : np.ndarray
+            The atoms belonging to this molecule
+        direction : int, +1 or -1
+            The direction to search in (+1 if it's the last frame,
+            -1 if it's the first frame)
+
+        Returns
+        -------
+        rxMin : int
+            The initial frame of this reaction event (i.e. latest frame
+            that all reactant molecules are stable)
+        rxMax : int
+            The last frame of this reaction event (i.e. the earliest frame
+            that all product molecules are stable)
+        refAtoms : np.ndarray
+            All of the atoms that complete this reaction event
+        """
+        if direction not in [1, -1]:
+            raise RuntimeError('Direction must be +1 or -1')
+        refAtoms = atoms.copy()
+        rxMin = rxMax = frame
+        while True:
+            rxFrame, rxAtoms = self.allStable(rxMax if direction > 0 else rxMin, refAtoms, direction)
+            rxMin = min(rxMin, rxFrame)
+            rxMax = max(rxMax, rxFrame)
+            if len(refAtoms) == len(rxAtoms) and (rxAtoms == refAtoms).all():
+                break
+            # When reversing direction, take a step back to include the frame already scanned over
+            if direction > 0: rxMin += 1
+            else: rxMax -= 1
+            refAtoms = rxAtoms.copy()
+            direction *= -1
+        if rxMin == rxMax:
+            raise RuntimeError("completeEvent called for a frame that doesn't contain a reaction event")
+        return rxMin, rxMax, refAtoms
+
+    def getMolIDs(self, frame, atoms):
+        """
+        Return the molecule IDs for a set of atoms at a particular frame.
+        This function assumes you are passing a list of atoms that correspond
+        to complete and stable molecules at the chosen frame.
+        (intended to be called by makeEvent() function)
+
+        Parameters
+        ----------
+        frame : int
+            The frame number where molecule IDs are queried
+        atoms : np.ndarray
+            The list of atoms for performing the query
+        
+        Returns
+        -------
+        molIDs : list
+            A list of molecule ID strings
+        """
+        molidxs = set(self.traj_midx[frame, atoms])
+        molIDs = [self.MolIDs[i] for i in sorted(list(molidxs))]
+        molatoms = sorted(list(itertools.chain(*[self.TimeSeries[molID]['graph'].L() for molID in molIDs])))
+        if not self.traj_stable[frame, atoms].all():
+            print frame, atoms, self.traj_stable[frame, atoms]
+            raise RuntimeError("getMolIDs called using frames and atoms that do not have stable molecules")
+        if (np.array(molatoms) != atoms).any():
+            raise RuntimeError("getMolIDs called using frames and atoms that do not correspond to complete molecules")
+        return molIDs
+
+    def padFrames(self, rxMin, rxMax, atoms):
+        """
+        Pad the reaction event using up to "PadTime" 
+        number of frames conditional on all molecules
+        being stable and no additional reactions occurring.
+        (intended to be called by makeEvent() function)
+
+        Parameters
+        ----------
+        rxMin : int
+            The first frame of the reaction event
+        rxMax : int
+            The final frame of the reaction event
+        atoms : np.ndarray
+            The atoms involved in the reaction event
+        
+        Returns
+        -------
+        int, int
+            The "padded" first and final frames of the reaction event
+        """
+        midxMin = set(self.traj_midx[rxMin, atoms])
+        midxMax = set(self.traj_midx[rxMax, atoms])
+        # Scan back in time until the "molecules of these atoms" are no longer stable
+        # or the molecule indices have changed.
+        for minPad in range(self.PadTime+1):
+            if rxMin-minPad == 0: break
+            if not self.traj_stable[rxMin-minPad, atoms].all() or set(self.traj_midx[rxMin-minPad, atoms]) != midxMin:
+                minPad -= 1
+                break
+        # Scan forward in time, as above
+        for maxPad in range(self.PadTime+1):
+            if rxMax+maxPad == 0: break
+            if not self.traj_stable[rxMax+maxPad, atoms].all() or set(self.traj_midx[rxMax+maxPad, atoms]) != midxMax:
+                maxPad -= 1
+                break
+        return rxMin-minPad, rxMax+maxPad
+
+    def makeEvent(self, frame1, frame2, atoms):
+        """
+        Given the frames and atoms that make up a reaction event,
+        create the "object" that represents the reaction event itself
+        (currently an OrderedDict).  This function also adds sanity
+        checks to see whether a reaction event really should be kept.
+        (intended to be called by findReactionEvents() function)
+
+        Parameters
+        ----------
+        frame1 : int
+            The first frame of the reaction event (before padding)
+        frame2 : int
+            The last frame of the reaction event (before padding)
+        atoms : np.ndarray
+            The atoms that participate in this reaction event
+
+        Returns
+        -------
+        EventID : str or None
+            String that represents the reaction event as:
+            frame1-frame2:commadash(atoms) e.g. 3814-3915:33,196-199
+            (If not a valid reaction event, None will be returned)
+        Event: OrderedDict or None
+            Dictionary containing relevant data for the reaction event.
+            Keys within Event are:
+            ----
+            molIDs : tuple
+                2-tuple containing lists of molecule IDs of reactants and products
+            frames : tuple
+                2-tuple containing first and last frame of the reaction event
+                These may be "padded" w/r.t. frame1 and frame2
+            equation : str
+                Chemical equation for the reaction event, such as 'H3N+CH4+HO->H4N+CH4O'
+            atoms : np.ndarray
+                Atoms that participate in this reaction event
+                These may be reduced w/r.t. input atoms due to spectator removal
+                (Future: Neutralization of reaction event should also occur here)
+            ----
+            (If not a valid reaction event, None will be returned)
+        """
+        if frame1 == 0:
+            if self.printlvl >= 2: print "Scanned past start"
+            return None, None
+        if frame2 == len(self)-1:
+            if self.printlvl >= 2: print "Scanned past end"
+            return None, None
+        molid1 = self.getMolIDs(frame1, atoms)
+        molid2 = self.getMolIDs(frame2, atoms)
+        common = set(molid1).intersection(set(molid2))
+        if len(common) > 0:
+            if self.printlvl >= 2: print "** Common molIDs: **", sorted(list(common))
+        # Remove spectator molecules from the reaction event. This makes an assumption that
+        # we are ignoring molecules that "catalyze" the reaction. On the other hand, 
+        # this method isn't guaranteed to find all molecules that catalyze the reaction,
+        # so maybe that should be implemented in a separate function.
+        molid1 = [m for m in molid1 if m not in common]
+        molid2 = [m for m in molid2 if m not in common]
+        if len(molid1) == 0:
+            if self.printlvl >= 2: print "No molecules left after removing spectators"
+            return None, None
+        # Check if any of the molecules are included in the excluded formulas; if so, do not keep it
+        for molID in molid1 + molid2:
+            ef = self.TimeSeries[molID]['graph'].ef()
+            if (ef in self.ExcludedFormulas or wildmatch(ef, self.ExcludedFormulas)):
+                if self.printlvl >= 2: print "Reaction event includes excluded molecules"
+                return None, None
+        # Re-create the list of atoms which may be reduced now that spectators are removed
+        atoms = np.array(sorted(list(itertools.chain(*[self.TimeSeries[molID]['graph'].L() for molID in molid1]))))
+        frame1Pad, frame2Pad = self.padFrames(frame1, frame2, atoms)
+        if self.getMolIDs(frame1Pad, atoms) != molid1 or self.getMolIDs(frame2Pad, atoms) != molid2:
+            print atoms, molid1, self.getMolIDs(frame1Pad, atoms), molid2, self.getMolIDs(frame2Pad, atoms),
+            raise RuntimeError('padFrames malfunction')
+        formula1 = formulaSum([self.TimeSeries[molID]['graph'].ef() for molID in molid1])
+        formula2 = formulaSum([self.TimeSeries[molID]['graph'].ef() for molID in molid2])
+        # Create the reaction event object
+        Event = OrderedDict([('molIDs', (molid1, molid2)), ('frames', (frame1Pad, frame2Pad)),
+                             ('equation', "%s->%s" % (formula1, formula2)), ('atoms', atoms.copy())])
+        EventID = '%i-%i:%s' % (frame1Pad, frame2Pad, commadash(atoms))
+        if self.printlvl >= 2:
+            print "Event ID:", EventID, "%s -> %s" % (formula1, formula2),
+            print "Frames: %i-%i" % (frame1Pad, frame2Pad), "Molecule IDs: %s -> %s" % (molid1, molid2)
+        self.getNeutralizing(frame1, frame2, atoms)
+        return EventID, Event
+                        
+    def findReactionEvents(self):
+        """
+        Top level function for finding reaction events.
+        (intended to be called by the constructor after makeMoleculeGraphs())
+        
+        Returns
+        -------
+        EventIDs : list
+            List of strings that represent reaction events as:
+            frame1-frame2:commadash(atoms) e.g. 3814-3915:33,196-199
+        Events: OrderedDict
+            Dictionary mapping event IDs to relevant data for the reaction event.
+            Keys within Events[EventID] are:
+            ----
+            molIDs : tuple
+                2-tuple containing lists of molecule IDs of reactants and products
+            frames : tuple
+                2-tuple containing first and last frame of the reaction event
+                These may be "padded" w/r.t. frame1 and frame2
+            equation : str
+                Chemical equation for the reaction event, such as 'H3N+CH4+HO->H4N+CH4O'
+            atoms : np.ndarray
+                Atoms that participate in this reaction event
+                These may be reduced w/r.t. input atoms due to spectator removal
+            ----
+        """
+        
+        # The search for reaction events start at the edges of stable intervals
+        unsortedEvents = {}
+        for molNum, (molID, ts) in enumerate(self.TimeSeries.items()):
+            if self.printlvl >= 2:
+                print "============="
+                print "Molecule", molNum, molID, ts['graph'].ef()
+            atoms = np.array(ts['graph'].L())
+            for fstart, intvl in ts['stable_times'].items():
+                fend = fstart + intvl - 1
+                if self.printlvl >= 2: print "Start Intvl End", fstart, intvl, fend
+                if fstart > 0:
+                    # Look for reaction event that led to formation of this molecule
+                    rstart, rend, ratoms = self.completeEvent(fstart, atoms, -1)
+                    evid, event = self.makeEvent(rstart, rend, ratoms)
+                    if evid is not None and evid not in unsortedEvents:
+                        unsortedEvents[evid] = event
+                if fend < len(self)-1:
+                    # Look for reaction event that led to destruction of this molecule
+                    rstart, rend, ratoms = self.completeEvent(fend, atoms, 1)
+                    evid, event = self.makeEvent(rstart, rend, ratoms)
+                    if evid is not None and evid not in unsortedEvents:
+                        unsortedEvents[evid] = event
+
+        sortkeys = []
+        lookup = {}
+        for evid in unsortedEvents.keys():
+            frameWord, atomWord = evid.split(':')
+            atomList = uncommadash(atomWord)
+            key = (int(frameWord.split('-')[0]), int(frameWord.split('-')[1])) + tuple(atomList)
+            if key in sortkeys:
+                print key, evid, lookup[key]
+                raise RuntimeError('key is duplicated in sortkeys')
+            sortkeys.append(key)
+            lookup[key] = evid
+
+        EventIDs = []
+        Events = OrderedDict()
+        for key in sorted(sortkeys):
+            evid = lookup[key]
+            EventIDs.append(evid)
+            Events[evid] = unsortedEvents[evid]
+
+        if self.printlvl >= 2:
+            for iev, evid in enumerate(EventIDs):
+                print iev, evid, Events[evid]['equation'], Events[evid]['molIDs']
+        elif self.printlvl >= 1:
+            for iev, evid in enumerate(EventIDs):
+                Event = Events[evid]
+                print "Reaction event found (%i/%i) : frames %i-%i : %s" % (iev+1, len(Events), Event['frames'][0], Event['frames'][1], Event['equation'])
+
+        return EventIDs, Events
+
+    def analyzeIsomers(self):
+        """
+        Print information regarding isomers in the simulation.
+        (intended to be called by the constructor)
+
+        This may be called at any point after makeMoleculeGraphs()
+
+        Returns
+        -------
+        IsomerData : OrderedDict
+            Maps the isomer indices to relevant information for that isomer.  
+            Keys within IsomerData are:
+            ----
+            graph : MyG
+                Graph of the isomer ID, including atomic symbols, connectivity, and atom numbers 
+                (atom numbers are irrelevant as they are molecule-specific)
+            midx : list
+                Molecule indices that have this isomer ID
+            firstFound : int
+                The frame in which this isomer first appeared
+            stableIndices : list
+                Atom indices of the stable appearances of this isomer
+            stableIntervals : tuple
+                List of first frames / interval lengths of the stable appearances of this isomer
+            flag : str
+                String descriptor of the status of this isomer, which is one of the following:
+                "Found" : an interesting isomer that was found,
+                "Known" : a known molecule matching user-provided empirical formula (and not highlighted)
+                "Excluded" : molecule to be excluded from all reaction events,
+                "Transient" : an isomer that exists for too short of a time to be assigned its own color
+                              and to be used in reaction event finding
+            color : int
+                Color index in VMD for visualization.
+            ----
+        traj_color : np.ndarray
+            Trajectory-like object containing the color of each atom for each frame in the trajectory
+            (for VMD visualization)
+        """
+        # Dictionary containing relevant information for isomers
+        IsomerData = OrderedDict()
+        # Whether to list all isomers in the first frame as "known"
+        knownFirst = 'all' in [i.lower() for i in self.KnownFormulas]
+        
+        for iidx, G in enumerate(self.Isomers):
+            if G.ef() in self.ExcludedFormulas:
+                flag = "Excluded"
+            elif G.ef() in self.KnownFormulas:
+                flag = "Known"
+            elif wildmatch(G.ef(), self.KnownFormulas):
+                flag = "Known"
+            else:
+                flag = "Transient"
+            # The data for each isomer is contained in an OrderedDict
+            IsomerData[iidx] = OrderedDict([('graph', G), ('midx', []), ('firstFound', len(self)), ('stableIndices', []),
+                                            ('stableIntervals', []), ('flag', flag), ('color', 1)])
+
+        # For each molecule, allocate information into the isomer data
+        for midx, (molID, ts) in enumerate(self.TimeSeries.items()):
+            iidx = ts['iidx']
+            IData = IsomerData[iidx]
+            IData['midx'].append(midx)
+            frame = 0
+            for intvl, on_off in encode(ts['raw_signal']):
+                if on_off:
+                    IData['firstFound'] = min(IData['firstFound'], frame)
+                    if frame == 0 and knownFirst:
+                        IData['flag'] = "Known"
+                frame += intvl
+            for frame, intvl in ts['stable_times'].items():
+                IData['stableIntervals'].append((frame, intvl))
+                IData['stableIndices'].append(ts['graph'].L())
+                if IData['flag'] == "Transient":
+                    IData['flag'] = "Found"
+
+        # Sort isomers according to the first frame that any instance of the isomer occurs.
+        # Molecules that are transient are printed at the end.
+        sortKeys = []
+        for iidx, IData in IsomerData.items():
+            firstStable = min([s[0] for s in IData['stableIntervals']]) if IData['stableIntervals'] else len(self)
+            sortKeys.append((firstStable, iidx))
+
+        # Print summary table.
+        if self.printlvl >= 0:
+            print
+            print "%10s %20s %10s %10s %10s %10s %10s %10s %20s" % ("Index", "Formula", "Instances", "firstFound", "firstStabl", "maxStable", "meanStable", "Flag", "Color")
+            print "="*120
+        ColorNum = 0
+        for key in sorted(sortKeys):
+            iidx = key[1]
+            IData = IsomerData[key[1]]
+            if IData['flag'] == "Found":
+                IData['color'] = self.CoolColors[ColorNum % len(self.CoolColors)]
+                ColorNum += 1
+            elif IData['flag'] in ["Known", "Excluded"]:
+                IData['color'] = 8
+            if self.printlvl >= 0:
+                firstStable = min([s[0] for s in IData['stableIntervals']]) if IData['stableIntervals'] else len(self)
+                maxInterval = max([s[1] for s in IData['stableIntervals']]) if IData['stableIntervals'] else 0
+                avgLife = np.mean([i[1] for i in IData['stableIntervals']]) if IData['stableIntervals'] else 0
+                print "%10i %20s %10i %10i %10i %10i %10.2f %10s %20s" % (iidx, IData['graph'].ef(), len(IData['midx']), IData['firstFound'], firstStable, maxInterval,
+                                                                          avgLife, IData['flag'], "%s (%i)" % (ColorNames[IData['color']], IData['color']))
+
+        # Return trajectory of VMD color indices for visualization.
+        traj_color = np.zeros((len(self), self.na), dtype='int')
+        traj_color -= 1
+        for midx, (molID, ts) in enumerate(self.TimeSeries.items()):
+            color = IsomerData[ts['iidx']]['color']
+            atoms = np.array(ts['graph'].L())
+            frame = 0
+            for intvl, on_off in encode(ts['raw_signal']):
+                if on_off:
+                    if (traj_color[frame:frame+intvl, atoms] != -1).any(): raise RuntimeError('traj_color is twice assigned')
+                    traj_color[frame:frame+intvl, atoms] = color
+                frame += intvl
+        if (traj_color == -1).any(): raise RuntimeError('traj_color is not fully assigned')
+        return IsomerData, traj_color
+
+    def writeReactionEvents(self):
+        """
+        Write stored reaction events to files.
+        (intended to be called by Output() function)
+
+        To keep things tidy, reaction events will be written to a 'reactions' subdirectory.
+        
+        Each reaction event will be written to a numbered output file such as reaction_000.xyz, 
+        and if it's a repeat of an existing reaction (i.e. reactant and product isomer IDs 
+        are the same), the file name will be appended to reaction_000_01.xyz and so on.
+        
+        Mulliken populations will be written to reaction_000.pop, which are XYZ-formatted
+        but have charges and spins written to the columns for x- and y-coordinates.
+        """
+        # Keep a list of output isomer indices for the purpose of seeing which
+        # reaction events duplicate ones already written
+        output_iidx = []
+        for iev, (evid, event) in enumerate(self.Events.items()):
+            r_iidx = sorted([self.TimeSeries[i]['iidx'] for i in event['molIDs'][0]])
+            p_iidx = sorted([self.TimeSeries[i]['iidx'] for i in event['molIDs'][1]])
+            for iout, (r_out, p_out) in enumerate(output_iidx):
+                if (r_iidx == r_out and p_iidx == p_out) or (r_iidx == p_out and p_iidx == r_out):
+                    if self.printlvl >= 2: print "reaction ID %s repeats output id %i" % (evid, iout)
+                    event['output_id'] = iout
+                    break
+            else:
+                event['output_id'] = len(output_iidx)
+                if self.printlvl >= 2: print "reaction ID %s assigned output id %i" % (evid, len(output_iidx))
+                output_iidx.append((r_iidx, p_iidx))
+
+        odir = 'reactions'
+        if not os.path.exists(odir): os.makedirs(odir)
+        # This is a double loop, first over the unique reactant/product isomer indices,
+        # then over all of the reaction events that match these isomer indices.
+        for iout in range(len(output_iidx)):
+            repeat = 0
+            for iev, (evid, event) in enumerate(self.Events.items()):
+                if event['output_id'] == iout:
+                    # Determine the file name
+                    if repeat == 0:
+                        fout = 'reaction_%03i.xyz' % iout
+                    else:
+                        fout = 'reaction_%03i_%02i.xyz' % (iout, repeat)
+                    # Figure out the first and last frame by parsing the event ID
+                    fstart, fend = self.Events[evid]['frames']#[int(i) for i in evid.split(':')[0].split('-')]
+                    atoms = self.Events[evid]['atoms']#np.array(uncommadash(evid.split(':')[1]))
+                    traj_slice = self.atom_select(atoms)[fstart:fend+1]
+                    if self.printlvl >= 2: print "Writing event ID %s, number %i, frames %i-%i to file %s" % (evid, iev, fstart, fend, fout)
+                    elif self.printlvl >= 1: print "Writing event number %i/%i, frames %i-%i to file %s : %s" % (iev+1, len(self.Events), fstart, fend, fout, self.Events[evid]['equation'])
+                    a = event['atoms']
+                    traj_slice.comms = ["%s atoms %s frame %i charge %+.3f sz %+.3f sz^2 %.3f"
+                                        % (event['equation'], commadash(a), f, sum(self.Charges[f][a]),
+                                           sum(self.Spins[f][a]), sum([j**2 for j in self.Spins[f][a]])) for f in range (fstart, fend+1)]
+                    traj_slice.write(os.path.join(odir, fout))
+                    # Write .xyz-like file containing Mulliken charge and spin populations
+                    # in the first and second columns
+                    traj_slice_pop = deepcopy(traj_slice)
+                    pop_arr = np.zeros((len(traj_slice_pop), len(atoms), 3), dtype=float)
+                    pop_arr[:, :, 0] = self.Charges[fstart:fend+1, atoms]
+                    pop_arr[:, :, 1] = self.Spins[fstart:fend+1, atoms]
+                    traj_slice_pop.xyzs = list(pop_arr)
+                    traj_slice_pop.write(os.path.join(odir, fout.replace('.xyz', '.pop')), ftype='xyz')
+                    repeat += 1
+                
+    def WriteChargeSpinLabels(self):
+        """
+        Write charge and spin labels to charge.dat and spin.dat for use in VMD visualization.
+        """
         # LPW 2019-03-04 Increasing threshold to 0.25 de-clutters visualization
         Threshold = 0.25
-        ChargeLabels = [[] for i in selection]
+        ChargeLabels = [[] for i in range(self.ns)]
         #print self.Recorded
         RecSeries = {}
-        for gid,ts in self.TimeSeries.items(): # Loop over graph IDs and time series
+        for molID,ts in self.TimeSeries.items(): # Loop over graph IDs and time series
             if ts['iidx'] in self.Recorded:
-                RecSeries[gid] = ts
+                RecSeries[molID] = ts
 
-        for gid,ts in RecSeries.items():
+        for molID,ts in RecSeries.items():
             idx = np.array(ts['graph'].L())
-            decoded = decode(ts['signal'])
-            for i in selection:
+            decoded = decode(ts['raw_signal'])
+            for i in range(self.ns):
                 if decoded[i]:
                     ChgArr = np.array(self.Charges[i][idx])
                     SumChg = sum(ChgArr)
@@ -722,8 +1519,6 @@ class Nanoreactor(Molecule):
         qout = open('charge.dat','w')
         for Label in ChargeLabels:
             for AtomChgTuple in Label:
-                #print >> qout, "{%s} %s" % (' '.join(["%i" % i for i in AtomChgTuple[0]]), AtomChgTuple[1])
-                #print >> qout, "%i %s" % (AtomChgTuple[0], AtomChgTuple[1]),
                 # This generates a string like 100 101 102! 103, 0.25; which indicates the atoms in a molecule, the net charge on that molecule, and the atom
                 # with the greatest charge marked by an exclamation point
                 print >> qout, "%s, %s;" % (' '.join(["%i%s" % (i, "!" if i == AtomChgTuple[2] else "") for i in AtomChgTuple[0]]), AtomChgTuple[1]),
@@ -731,483 +1526,121 @@ class Nanoreactor(Molecule):
 
         Threshold = 0.25
         sout = open('spin.dat','w')
-        for i in selection:
+        for i in range(self.ns):
             for a in range(self.na):
                 if abs(self.Spins[i][a]) >= Threshold:
                     print >> sout, "%i %+.2f" % (a, self.Spins[i][a]),
             print >> sout
         qout.close()
 
-    def GetNeutralizing(self, atoms, framesel):
+    def getNeutralizing(self, frame1, frame2, atoms, tol=0.25):
         """
-        Given a list of atoms and a time series, find another list of atoms corresponding to:
-        1) complete molecules that exist throughout the entire time series
-        2) is the closest to the original set of atoms by some measure 
-           (we'll use the maximum value of the closest contact time series)
-        3) neutralizes the overall system
+        Given two frames and a list of atoms, find a list of atoms that:
+        
+        1) belong to molecules that exist from frame1:frame2
+           and don't intersect with the provided atoms
+        2) neutralizes the overall system
+        3) is close to the original set of atoms in space
+        4) keeps charge and spin consistent
 
         Parameters
         ----------
+        frame1 : int
+            First frame of the interval
+        frame2 : int
+            Last frame of the interval (inclusive of endpoints)
         atoms : list
-            List of atoms 
-        framesel : list
-            List of frames
+            List of atoms to be neutralized
+        tol : float
+            Neutralization tolerance
 
         Returns
         -------
         counter_atoms : list
-            List of atoms that neutralizes the input list
+            List of atoms that satisfies the above conditions
         """
-        # Get the current charge on the atom selection
-        SelChg = np.mean(np.sum(self.Charges[framesel][:, atoms], axis=1))
-        SelSpn = np.mean(np.sum(self.Spins[framesel][:, atoms], axis=1))
-        if self.printlvl >= 1: print "Attempting to neutralize atoms %s (charge %+.3f)" % (commadash(framesel), SelChg)
-        Selxyz = np.array(self.atom_select(atoms)[framesel].xyzs)
-        # Candidate molecules to serve as counterions
-        Candidate_aidx = []
-        Candidate_gids = []
-        Candidate_mindist = []
-        Candidate_maxdist = []
-        Candidate_ichg = []
+        frames = np.arange(frame1, frame2+1)
+        # Get the current charge / spin on the atom selection
+        chg = np.mean(np.sum(self.Charges[frame1:frame2+1, atoms], axis=1))
+        spn = np.mean(np.sum(self.Spins[frame1:frame2+1, atoms], axis=1))
+        # Don't add any molecules if the molecule is already neutralized
+        if np.abs(chg) < tol:
+            return []
+        if self.printlvl >= 2: print "Attempting to neutralize atoms %s (charge %+.3f spin %+.3f)" % (commadash(atoms), chg, spn)
+        xyz = np.array(self.atom_select(atoms)[frames].xyzs)
+        
+        # Ordered dictionary of candidate molecules to be added to the list
+        Candidates = OrderedDict()
+        Candidate = namedtuple('Candidate', ['mindx', 'maxdx', 'chg', 'spn'])
         # Loop over all molecules in the time series
-        for gid, ts in self.TimeSeries.items():
+        for molID, ts in self.TimeSeries.items():
             # Check to make sure that this molecule exists for ALL frames in the frame selection
             # and does not overlap with ANY atoms in our atom selection.
-            if (exists_at_time(ts['signal'], framesel[0]) and 
-                exists_at_time(ts['signal'], framesel[-1]) and
-                len(set(ts['graph'].L()).intersection(set(atoms))) == 0 and
-                list(set(decode(ts['signal'])[framesel[0]:framesel[-1]])) == [1]):
-                # List of atoms in this molecule
-                aidx = ts['graph'].L()
-                MolChg = np.mean(np.sum(self.Charges[framesel][:, aidx], axis=1))
-                # This signifies that the molecule has nonzero charge with opposite sign
-                if np.abs(MolChg) > 0.25 and MolChg * SelChg < 0:
-                    Molxyz = np.array(self.atom_select(aidx)[framesel].xyzs)
-                    # Get the squared distance matrix for every charged molecule with opposite sign
-                    contacts2 = np.zeros((Selxyz.shape[1], Molxyz.shape[1], len(framesel)))
-                    for a in range(Selxyz.shape[1]):
-                        for b in range(Molxyz.shape[1]):
-                            contacts2[a, b, :] = np.sum((Selxyz[:, a, :] - Molxyz[:, b, :])**2, axis=1)
-                    # Build a closest contact time series
-                    cct = []
-                    for t in range(contacts2.shape[2]):
-                        cct.append(np.sqrt(np.min(contacts2[:, :, t])))
-                    cct = np.array(cct)
-                    # Record the closest that the molecule got, and how far it drifted away
-                    Candidate_aidx.append(aidx)
-                    Candidate_gids.append(gid)
-                    Candidate_mindist.append(min(cct))
-                    Candidate_maxdist.append(max(cct))
-                    Candidate_ichg.append(MolChg)
-        counter_atoms = []
-        counter_gids = []
-        added_sets = [[]]
-        added_chgs = [SelChg]
-        added_spns = [SelSpn]
-        added_isos = [[]]
+            if set(ts['graph'].L()).intersection(set(atoms)): continue
+            if not ts['raw_signal'][frames].all(): continue
+            # List of atoms in this molecule
+            c_atoms = ts['graph'].L()
+            c_chg = np.mean(np.sum(self.Charges[frame1:frame2+1, c_atoms], axis=1))
+            c_spn = np.mean(np.sum(self.Spins[frame1:frame2+1, c_atoms], axis=1))
+            # The molecule must have a large enough charge/spin of the correct sign to neutralize the original atoms
+            if np.abs(c_chg) > tol/2 and c_chg * chg < 0:
+                print molID, c_chg, c_spn, "Yerrs"
+                c_xyz = np.array(self.atom_select(c_atoms)[frames].xyzs)
+                # Get the squared distance matrix for every charged molecule with opposite sign
+                sq_dmat = np.zeros((xyz.shape[1], c_xyz.shape[1], len(frames)))
+                for a in range(xyz.shape[1]):
+                    for b in range(c_xyz.shape[1]):
+                        sq_dmat[a, b, :] = np.sum((xyz[:, a, :] - c_xyz[:, b, :])**2, axis=1)
+                # Build a closest contact time series
+                c_contact = np.array(np.min(sq_dmat, axis=(0, 1)))**0.5
+                # Record the closest that the molecule got, and how far it drifted away
+                Candidates[molID] = Candidate(min(c_contact), max(c_contact), c_chg, c_spn)
+
         # Now loop over all candidates in order of increasing closest contact distance
-        for c in np.argsort(Candidate_maxdist):
-            aidx = Candidate_aidx[c]
-            if self.printlvl >= 1: print "Trying to neutralize with atoms %s (charge %+.3f distance %.3f - %.3f)" % (commadash(aidx), Candidate_ichg[c], Candidate_mindist[c], Candidate_maxdist[c])
-            counter_atoms = sorted(list(set(counter_atoms + aidx)))
-            counter_gids = sorted(list(set(counter_gids + [Candidate_gids[c]])))
-            NewSelChg = np.mean(np.sum(self.Charges[framesel][:, atoms+counter_atoms], axis=1))
-            NewSelSpn = np.mean(np.sum(self.Spins[framesel][:, atoms+counter_atoms], axis=1))
+        molID_sorted_maxdist = [list(Candidates.keys())[i] for i in np.argsort([c.maxdx for c in Candidates.values()])]
+        keep_molID = []
+        success = False
+        curr_chg = chg
+        curr_spn = spn
+        limit = 3
+        for molID in molID_sorted_maxdist:
+            valid = False
+            formula = self.TimeSeries[molID]['graph'].ef()
+            c_atoms = self.TimeSeries[molID]['graph'].L()
+            keep_atoms = list(itertools.chain(*[self.TimeSeries[m]['graph'].L() for m in keep_molID]))
+            new_atoms = sorted(c_atoms + keep_atoms + list(atoms))
+            new_chg = np.mean(np.sum(self.Charges[frame1:frame2+1, new_atoms], axis=1))
+            new_spn = np.mean(np.sum(self.Spins[frame1:frame2+1, new_atoms], axis=1))
             # Check for charge and spin consistency.
-            nproton = sum([Elements.index(i) for i in [self.elem[j] for j in (atoms+counter_atoms)]])
-            nelectron = int(nproton + round(NewSelChg))
-            spn = int(round(NewSelSpn))
+            nprot = sum([Elements.index(i) for i in [self.elem[j] for j in new_atoms]])
+            nelec = int(nprot + round(new_chg))
+            nspin = int(round(new_spn))
             # The number of electrons should be odd iff the spin is odd.
-            if ((nelectron-spn)/2)*2 != (nelectron-spn):
-                if self.printlvl >= 1: print "Charge and spin \x1b[91mnot consistent\x1b[0m (charge %+.3f -> %+.3f) ; added atoms %s" % (SelChg, NewSelChg, commadash(counter_atoms))
-            elif int(round(NewSelChg)) == 0: 
-                if self.printlvl >= 1: print "Successfully \x1b[92mneutralized\x1b[0m the reaction (charge %+.3f -> %+.3f) ; added atoms %s" % (SelChg, NewSelChg, commadash(counter_atoms))
-                added_sets.append(counter_atoms[:])
-                added_isos.append([int(i.split(':')[1]) for i in counter_gids])
-                added_chgs.append(NewSelChg)
-                added_spns.append(NewSelSpn)
-            elif int(round(NewSelChg)) * SelChg < 0:
-                if self.printlvl >= 1: print "\x1b[91mOvershot\x1b[0m the reaction (charge %+.3f -> %+.3f) ; added atoms %s" % (SelChg, NewSelChg, commadash(counter_atoms))
-                added_sets.append(counter_atoms[:])
-                added_isos.append([int(i.split(':')[1]) for i in counter_gids])
-                added_chgs.append(NewSelChg)
-                added_spns.append(NewSelSpn)
-                break
+            if nelec%2 != nspin%2:
+                print nprot, nelec, nspin
+                if self.printlvl >= 2: print "\x1b[91mInconsistent\x1b[0m charge/spin (charge %+.3f -> %+.3f, spin %+.3f -> %+.3f) ; not adding %s" % (curr_chg, new_chg, curr_spn, new_spn, formula)
+            elif new_chg * chg < 0 and abs(new_chg) > tol:
+                if self.printlvl >= 2: print "\x1b[91mOvershot\x1b[0m the reaction (charge %+.3f -> %+.3f) ; not adding molID %s" % (curr_chg, new_chg, formula)
             else:
-                if self.printlvl >= 1: print "Reaction is \x1b[93mnot neutralized\x1b[0m yet (charge %+.3f -> %+.3f) ; added atoms %s" % (SelChg, NewSelChg, commadash(counter_atoms))
-        selct = np.argmin(np.abs(np.array(added_chgs)))
-        print "Result of neutralization: charge \x1b[94m%+.3f\x1b[0m -> \x1b[92m%+.3f\x1b[0m, added atoms %s" % (SelChg, added_chgs[selct], commadash(added_sets[selct]))
-        print added_isos[selct]
-        return added_sets[selct], added_isos[selct]
+                if self.printlvl >= 2: print "\x1b[91mReducing net charge of\x1b[0m reaction (charge %+.3f -> %+.3f) ; adding molID %s" % (curr_chg, new_chg, formula)
+                curr_chg = new_chg
+                curr_spn = new_spn
+                valid = True
+                keep_molID.append(molID)
+            if valid and abs(new_chg) < tol:
+                success = True
+                break
+            if len(keep_molID) == limit:
+                if self.printlvl >= 2: print "\x1b[92mFailed\x1b[0m after adding %i molecules" % len(keep_molID)
+                break
+        if self.printlvl >= 1:
+            print "Neutralization %s: charge \x1b[94m%+.3f\x1b[0m -> \x1b[92m%+.3f\x1b[0m, spin %+.3f -> %+.3f" % ('success' if success else 'failure', chg, curr_chg, spn, curr_spn),
+            if keep_molID: print "added %s (molIDs %s)" % (formulaSum([self.TimeSeries[m]['graph'].ef() for m in keep_molID]), ' '.join(keep_molID))
+            else: print
+        counter_atoms = sorted(list(itertools.chain(*[self.TimeSeries[m]['graph'].L() for m in keep_molID])))
+        return counter_atoms, success
 
-    def GetReactions(self):
-        # This piece of code first pulls up our recognized reaction product trajectory segments.
-        # It scans forward / backward past the ends of the segment in search of a chemical reaction.
-        # By scanning past the ends of the segment, we look at all of the molecules that the atoms have evolved into.
-        # The new molecules' atom IDs are all stored.  If the topology (denoted by gids) has changed 
-        # but the atom IDs have stayed the same, then an isomerization has taken place and the trajectory is stored.
-        # If the atom IDs have expanded, it means that more atoms are involved in the chemical reaction,
-        # and an attempt is made to incorporate them into a contiguous chemical reaction.
-        if not self.saverxn:
-            return
-        if self.printlvl >= 0: print "Attempting to extract chemical reactions:"
-        RxnNum = 0
-        RxnList = [] # A list of 2-tuples consisting of [set(atoms), set(frames)]
-        RxRepeats = defaultdict(int) # A dictionary that keeps track of how many instances of a particular reaction has occurred
-        # I'm going to sort the chemical reactions in order of their first frame.
-        Slices = []        # A list of lists of Molecule objects to be saved to disk
-        Firsts = []        # A list of lists of first frames
-        Lasts  = []        # A list of lists of last frames
-        SliceIndices = []  # A list of atom indices corresponding to each saved trajectory
-        SliceFrames = []   # A list of frames corresponding to each saved trajectory
-        BufferTime = 0
-        PadTime = self.PadTime
-        for gid, ts in self.TimeSeries.items():
-            iidx = ts['iidx']
-            I = self.Isomers[iidx]
-            S = segments(FillGaps(ts['signal'],self.LearnTime))
-            if self.printlvl >= 1 and segments(ts['signal']): print "Original and Condensed Segments:", segments(ts['signal']), S
-            aidx = ts['graph'].L()
-            if iidx not in self.BoringIsomerIdxs and len(S) > 0:
-                if self.printlvl >= 1: print "Molecular formula:", I.ef(), "atoms:", commadash(aidx), "frames:", S
-                for s in S:
-                    if (s[1]-s[0]) > self.LearnTime:
-                        Begin  = s[0] + PadTime
-                        End    = s[1] - PadTime
-                        Before = max(0, s[0] - + PadTime)
-                        After  = min(self.Frames-1, s[1] + PadTime)
-                        if Before < Begin:
-                            #if self.printlvl >= 1: print "Looking backward to frame %i," % Before,
-                            Reactant_Atoms = aidx
-                            New_Reactants = None
-                            EndPoint = False
-                            Reacted = True
-                            minf = Before
-                            maxf = Begin
-                            iso0 = [ts['iidx']]
-                            gid0 = [gid]
-                            while True:
-                                fidx = Begin if EndPoint else Before
-                                here = Before if EndPoint else Begin
-                                New_Reactants, gid1, newf, iso1 = self.PullAidx(fidx,Reactant_Atoms,PadTime,fwd=EndPoint)
-                                if New_Reactants == None:
-                                    if self.printlvl >= 1: print " - scanned past start of trajectory!"
-                                    Reacted = False
-                                    break
-                                if newf < minf:
-                                    minf = newf
-                                elif newf > maxf:
-                                    maxf = newf
-                                if self.printlvl >= 1: print "Whole molecules in frame %i have atoms %s ; pulled molecules from frame %i and got %s" % (here, commadash(Reactant_Atoms), newf, commadash(New_Reactants)),
-                                if len(gid1) == 1 and gid1[0] == gid:
-                                    if self.printlvl >= 1: print " - no reaction took place!"
-                                    Reacted = False
-                                    break
-                                if Reactant_Atoms == New_Reactants : 
-                                    if self.printlvl >= 1: print " - success!"
-                                    break
-                                else: 
-                                    if self.printlvl >= 1: print " - expanding the system"
-                                    Reactant_Atoms = New_Reactants[:]
-                                    iso0 = iso1[:]
-                                    gid0 = gid1[:]
-                                EndPoint = not EndPoint
-                                here = newf
-                            if Reacted:
-                                Before = max(0, minf - BufferTime) # Insert a small number of frames at the start where we have the reactants.
-                                Begin = min(self.Frames, maxf + BufferTime)
-                                FrameSel = np.arange(Before, Begin)
-                                # Check for repeats.
-                                Repeat = False
-                                Overwrite = -1
-                                Annotate = -1
-                                # At this stage we may have some 'spectator molecules'.  Time to get rid of them.
-                                for spec in set(gid0).intersection(set(gid1)):
-                                    II = self.TimeSeries[spec]['graph']
-                                    if self.printlvl >= 1: print "Removing spectator molecule, graph id %s (%s)" % (spec, II.ef())
-                                    for a in II.L():
-                                        Reactant_Atoms.remove(a)
-                                    iso0.remove(self.TimeSeries[spec]['iidx'])
-                                    iso1.remove(self.TimeSeries[spec]['iidx'])
-                                    gid0.remove(spec)
-                                    gid1.remove(spec)
-                                if len(Reactant_Atoms) == 0: 
-                                    if self.printlvl >= 1: print "There are no atoms left!"
-                                    break
-                                for Rnum, Rxn in enumerate(RxnList):
-                                    if len(Rxn[1].intersection(set(FrameSel))) >= 0.5*len(Rxn[1]):
-                                        if set(Reactant_Atoms).issubset(Rxn[0]):
-                                            if self.printlvl >= 1: print "This reaction is a repeat/subset of one we already have!"
-                                            Repeat = True
-                                            break
-                                if not Repeat:
-                                    for Rnum, Rxn in enumerate(RxnList):
-                                        if (Rxn[2] == iso0 and Rxn[3] == iso1) or (Rxn[2] == iso1 and Rxn[3] == iso0):
-                                            if self.printlvl >= 1: print "This reaction is \x1b[93manother instance\x1b[0m of reaction number %i!" % Rnum
-                                            Repeat = True
-                                            Annotate = Rnum
-                                            break
-                                if not Repeat:
-                                    for Rnum, Rxn in enumerate(RxnList):
-                                        if len(Rxn[1].intersection(set(FrameSel))) >= 0.5*len(Rxn[1]):
-                                            if set(Reactant_Atoms).issuperset(Rxn[0]):
-                                                if self.printlvl >= 1: print "This reaction is a \x1b[94msuperset\x1b[0m of one we already have - overwriting!"
-                                                Repeat = True
-                                                Overwrite = Rnum
-                                                break
-                                save = False
-                                if not Repeat:
-                                    save = True
-                                    RxnList.append((set(Reactant_Atoms),set(FrameSel),iso0,iso1))
-                                    RxnNum += 1
-                                elif Overwrite >= 0:
-                                    save = True
-                                    RxnList[Overwrite] = (set(Reactant_Atoms),set(FrameSel),iso0,iso1)
-                                elif Annotate >= 0:
-                                    save = True
-                                    RxRepeats[Annotate] += 1
-                                if save:
-                                    if self.neutralize:
-                                        Neutral_Atoms, Neutral_Isos = self.GetNeutralizing(Reactant_Atoms, FrameSel)
-                                        Reactant_Atoms += Neutral_Atoms
-                                        iso0 += Neutral_Isos
-                                        iso1 += Neutral_Isos
-                                    Reactant_Atoms = sorted(list(set(Reactant_Atoms)))
-                                    Slice = self.atom_select(Reactant_Atoms)[FrameSel]
-                                    rx0 = '+'.join([("%i" % iso0.count(i) if iso0.count(i) > 1 else "") + self.Isomers[i].ef() for i in sorted(set(iso0))])
-                                    rx1 = '+'.join([("%i" % iso1.count(i) if iso1.count(i) > 1 else "") + self.Isomers[i].ef() for i in sorted(set(iso1))])
-                                    evector="%s -> %s" % (rx0 if EndPoint else rx1, rx1 if EndPoint else rx0)
-                                    tx0 = str([commadash(sorted([Reactant_Atoms.index(i) for i in self.TimeSeries[g]['graph'].L()])) for g in gid0]).replace(" ","")
-                                    tx1 = str([commadash(sorted([Reactant_Atoms.index(i) for i in self.TimeSeries[g]['graph'].L()])) for g in gid1]).replace(" ","")
-                                    tvector="%s -> %s" % (tx0 if EndPoint else tx1, tx1 if EndPoint else tx0)
-                                    Slice.comms = ["Reaction: formula %s atoms %s frame %s charge %+.3f sz %+.3f sz^2 %.3f" % (evector, tvector, str(frame), sum(self.Charges[frame][Reactant_Atoms]),
-                                                                                                                               sum(self.Spins[frame][Reactant_Atoms]), sum([j**2 for j in self.Spins[frame][Reactant_Atoms]])) for frame in FrameSel]
-                                    Slice.align_center()
-                                    if not Repeat:
-                                        Slices.append([Slice])
-                                        Firsts.append([FrameSel[0]])
-                                        Lasts.append([FrameSel[-1]])
-                                        SliceIndices.append([Reactant_Atoms])
-                                        SliceFrames.append([FrameSel])
-                                    elif Overwrite >= 0:
-                                        Slices[Overwrite] = [Slice]
-                                        Firsts[Overwrite] = [FrameSel[0]]
-                                        Lasts[Overwrite] = [FrameSel[-1]]
-                                        SliceIndices[Overwrite] = [Reactant_Atoms]
-                                        SliceFrames[Overwrite] = [FrameSel]
-                                    elif Annotate >= 0:
-                                        Slices[Annotate].append(Slice)
-                                        Firsts[Annotate].append(FrameSel[0])
-                                        Lasts[Annotate].append(FrameSel[-1])
-                                        SliceIndices[Annotate].append(Reactant_Atoms)
-                                        SliceFrames[Annotate].append(FrameSel)
-                                    if self.printlvl >= 0: print "\rReaction found: formula %s atoms %s frames %i through %i" % (evector, commadash(Reactant_Atoms), FrameSel[0], FrameSel[-1])
-                                    
-                        if After > End:
-                            #if self.printlvl >= 1: print "Looking forward to frame %i," % After,
-                            Reactant_Atoms = aidx
-                            New_Reactants = None
-                            EndPoint = False
-                            Reacted = True
-                            minf = End
-                            maxf = After
-                            iso0 = [ts['iidx']]
-                            gid0 = [gid]
-                            while True:
-                                fidx = End if EndPoint else After
-                                here = After if EndPoint else End
-                                New_Reactants, gid1, newf, iso1 = self.PullAidx(fidx,Reactant_Atoms,PadTime,fwd=not EndPoint)
-                                if New_Reactants == None:
-                                    if self.printlvl >= 1: print " - scanned past end of trajectory!"
-                                    Reacted = False
-                                    break
-                                if newf > maxf:
-                                    maxf = newf
-                                elif newf < minf:
-                                    minf = newf
-                                if self.printlvl >= 1: print "Whole molecules in frame %i have atoms %s ; pulled molecules from frame %i and got %s" % (here, commadash(Reactant_Atoms), newf, commadash(New_Reactants)),
-                                if len(gid1) == 1 and gid1[0] == gid:
-                                    if self.printlvl >= 1: print " - no reaction took place!"
-                                    Reacted = False
-                                    break
-                                if Reactant_Atoms == New_Reactants : 
-                                    if self.printlvl >= 1: print " - success!"
-                                    break
-                                else: 
-                                    if self.printlvl >= 1: print " - expanding the system"
-                                    Reactant_Atoms = New_Reactants[:]
-                                    iso0 = iso1[:]
-                                    gid0 = gid1[:]
-                                EndPoint = not EndPoint
-                                here = newf
-                            if Reacted:
-                                After = min(self.Frames, maxf + BufferTime)
-                                End = max(0, minf - BufferTime)
-                                FrameSel = np.arange(End, After)
-                                # Check for repeats.
-                                Repeat = False
-                                Overwrite = -1
-                                Annotate = -1
-                                # At this stage we may have some 'spectator molecules'.  Time to get rid of them.
-                                for spec in set(gid0).intersection(set(gid1)):
-                                    II = self.TimeSeries[spec]['graph']
-                                    if self.printlvl >= 1: print "Removing spectator molecule, graph id %s (%s)" % (spec, II.ef())
-                                    for a in II.L():
-                                        Reactant_Atoms.remove(a)
-                                    iso0.remove(self.TimeSeries[spec]['iidx'])
-                                    iso1.remove(self.TimeSeries[spec]['iidx'])
-                                    gid0.remove(spec)
-                                    gid1.remove(spec)
-                                if len(Reactant_Atoms) == 0: 
-                                    if self.printlvl >= 1: print "There are no atoms left!"
-                                    break
-                                for Rnum, Rxn in enumerate(RxnList):
-                                    if len(Rxn[1].intersection(set(FrameSel))) >= 0.5*len(Rxn[1]):
-                                        if set(Reactant_Atoms).issubset(Rxn[0]):
-                                            if self.printlvl >= 1: print "This reaction is a repeat/subset of one we already have!"
-                                            Repeat = True
-                                            break
-                                if not Repeat:
-                                    for Rnum, Rxn in enumerate(RxnList):
-                                        if (Rxn[2] == iso0 and Rxn[3] == iso1) or (Rxn[2] == iso1 and Rxn[3] == iso0):
-                                            if self.printlvl >= 1: print "This reaction is \x1b[93manother instance\x1b[0m of reaction number %i!" % Rnum
-                                            Repeat = True
-                                            Annotate = Rnum
-                                            break
-                                if not Repeat:
-                                    for Rnum, Rxn in enumerate(RxnList):
-                                        if len(Rxn[1].intersection(set(FrameSel))) >= 0.5*len(Rxn[1]):
-                                            if set(Reactant_Atoms).issuperset(Rxn[0]):
-                                                if self.printlvl >= 1: print "This reaction is a \x1b[94msuperset\x1b[0m of one we already have - overwriting!"
-                                                Repeat = True
-                                                Overwrite = Rnum
-                                                break
-                                save = False
-                                if not Repeat:
-                                    save = True
-                                    RxnList.append((set(Reactant_Atoms),set(FrameSel),iso0,iso1))
-                                    RxnNum += 1
-                                elif Overwrite >= 0:
-                                    save = True
-                                    RxnList[Overwrite] = (set(Reactant_Atoms),set(FrameSel),iso0,iso1)
-                                elif Annotate >= 0:
-                                    save = True
-                                    RxRepeats[Annotate] += 1
-                                if save:
-                                    if self.neutralize:
-                                        Neutral_Atoms, Neutral_Isos = self.GetNeutralizing(Reactant_Atoms, FrameSel)
-                                        Reactant_Atoms += Neutral_Atoms
-                                        iso0 += Neutral_Isos
-                                        iso1 += Neutral_Isos
-                                    Reactant_Atoms = sorted(list(set(Reactant_Atoms)))
-                                    Slice = self.atom_select(Reactant_Atoms)[FrameSel]
-                                    rx0 = '+'.join([("%i" % iso0.count(i) if iso0.count(i) > 1 else "") + self.Isomers[i].ef() for i in sorted(set(iso0))])
-                                    rx1 = '+'.join([("%i" % iso1.count(i) if iso1.count(i) > 1 else "") + self.Isomers[i].ef() for i in sorted(set(iso1))])
-                                    evector="%s -> %s" % (rx1 if EndPoint else rx0, rx0 if EndPoint else rx1)
-                                    tx0 = str([commadash(sorted([Reactant_Atoms.index(i) for i in self.TimeSeries[g]['graph'].L()])) for g in gid0]).replace(" ","")
-                                    tx1 = str([commadash(sorted([Reactant_Atoms.index(i) for i in self.TimeSeries[g]['graph'].L()])) for g in gid1]).replace(" ","")
-                                    tvector="%s -> %s" % (tx1 if EndPoint else tx0, tx0 if EndPoint else tx1)
-                                    Slice.comms = ["Reaction: formula %s atoms %s frame %s charge %+.3f sz %+.3f sz^2 %.3f" % (evector, tvector, str(frame), sum(self.Charges[frame][Reactant_Atoms]),
-                                                                                                                               sum(self.Spins[frame][Reactant_Atoms]), sum([j**2 for j in self.Spins[frame][Reactant_Atoms]])) for frame in FrameSel]
-                                    Slice.align_center()
-                                    if not Repeat:
-                                        Slices.append([Slice])
-                                        Firsts.append([FrameSel[0]])
-                                        Lasts.append([FrameSel[-1]])
-                                        SliceIndices.append([Reactant_Atoms])
-                                        SliceFrames.append([FrameSel])
-                                    elif Overwrite >= 0:
-                                        Slices[Overwrite] = [Slice]
-                                        Firsts[Overwrite] = [FrameSel[0]]
-                                        Lasts[Overwrite] = [FrameSel[-1]]
-                                        SliceIndices[Overwrite] = [Reactant_Atoms]
-                                        SliceFrames[Overwrite] = [FrameSel]
-                                    elif Annotate >= 0:
-                                        Slices[Annotate].append(Slice)
-                                        Firsts[Annotate].append(FrameSel[0])
-                                        Lasts[Annotate].append(FrameSel[-1])
-                                        SliceIndices[Annotate].append(Reactant_Atoms)
-                                        SliceFrames[Annotate].append(FrameSel)
-                                    if self.printlvl >= 0: print "\rReaction found: formula %s atoms %s frames %i through %i" % (evector, commadash(Reactant_Atoms), FrameSel[0], FrameSel[-1])
-        print
-        RxnSrl = 0                                                    # Serial number of the reaction for writing to disk
-        haverxn = {}
-        # Look for existing reaction.xyz so we can preserve existing reactions from previous runs.
-        for fnm in os.listdir('.'):
-            if fnm.startswith('reaction_') and fnm.endswith('.xyz'):
-                srl = int(os.path.splitext(fnm)[0].split("_")[1])
-                maxinst = 0
-                for fnm1 in os.listdir('.'):
-                    if fnm1.startswith('reaction_%03i' % srl) and fnm1.endswith('.xyz'):
-                        if len(os.path.splitext(fnm1)[0].split("_")) > 2:
-                            maxinst = max(maxinst, int(os.path.splitext(fnm1)[0].split("_")[2]))
-                if srl >= RxnSrl:
-                    RxnSrl = srl+1
-                rcomms = [l for l in open(fnm).readlines() if l.startswith('Reaction:')]
-                rframes = set([int(l.split("frame")[1].split()[0]) for l in rcomms])
-                L = ast.literal_eval(rcomms[0].split('->')[1].split()[-1])
-                aset = set(list(itertools.chain(*[uncommadash(i) for i in L])))
-                haverxn[fnm] = [aset, rframes, srl, maxinst]
-
-        def rxn_lookup(rxnnum, inst):
-            # Read frames and atoms from the reaction about to be saved.
-            rxn = Slices[rxnnum][inst]
-            rframes = set([int(l.split("frame")[1].split()[0]) for l in rxn.comms])
-            L = ast.literal_eval(rxn.comms[0].split('->')[1].split()[-1])
-            aset = set(list(itertools.chain(*[uncommadash(i) for i in L])))
-            for rxn0 in haverxn:
-                aset0, rframes0, srl0, maxinst = haverxn[rxn0]
-                overlap = (float(len(rframes.intersection(rframes0))) / max(len(rframes), len(rframes0)))
-                if aset == aset0 and overlap > 0.9:
-                    if self.printlvl >= 0: print "Reaction in frames %i -> %i overlaps with %s (%.1f%% frames)" % (Firsts[rxnnum][inst], Lasts[rxnnum][inst], rxn0, 100*overlap)
-                    return srl0, maxinst, rxn0
-            return -1, -1, None
-                
-        for RxnNum in np.argsort(np.array([min(i) for i in Firsts])): # Reactions sorted by the first frame of occurrence
-            InstSrl = 0                                               # Instance number of the reaction for writing to disk
-            RxnSrl_ = RxnSrl                                          # The temporary reaction serial number (will be replaced if reaction exists on disk)
-            for Inst in np.argsort(Firsts[RxnNum]):                   # Instances of a given reaction, again sorted by first frame of occurrence
-                HaveRxn, HaveInst, HaveFnm = rxn_lookup(RxnNum, Inst) # Whether this reaction already exists in the list of reaction_123.xyz, and the maximum instance of this reaction.
-                if HaveRxn > -1:
-                    RxnSrl_ = HaveRxn
-                if HaveInst >= InstSrl:                               # Any more instances of this reaction will need to be written with reaction_123_003.xyz (003 incremented from 002 for example)
-                    InstSrl = HaveInst+1
-                if InstSrl == 0:
-                    outfnm = "reaction_%03i.xyz" % RxnSrl_
-                else:
-                    outfnm = "reaction_%03i_%i.xyz" % (RxnSrl_, InstSrl)
-                if HaveRxn == -1:
-                    # LPW: All of the repeated reaction.xyz files are getting annoying!
-                    if InstSrl < 10:
-                        if self.printlvl >= 0: print "\x1b[1;92mSaving\x1b[0m frames %i -> %i to %s" % (Firsts[RxnNum][Inst], Lasts[RxnNum][Inst], outfnm)
-                        Slices[RxnNum][Inst].center()
-                        Slices[RxnNum][Inst].write(outfnm)
-                    elif self.printlvl >= 0: print "\x1b[1;93mNot Saving\x1b[0m frames %i -> %i (instance %i)" % (Firsts[RxnNum][Inst], Lasts[RxnNum][Inst], InstSrl)
-                    InstSrl += 1
-                if HaveFnm != None:
-                    outfnm = HaveFnm
-                if os.path.exists(outfnm) and not os.path.exists(outfnm.replace('.xyz','.pop')):
-                    # Build a molecule object containing the corresponding charges and spin
-                    SlicePop = deepcopy(Slices[RxnNum][Inst])
-                    ThisIdx = SliceIndices[RxnNum][Inst]
-                    ThisFrm = SliceFrames[RxnNum][Inst]
-                    # Grab charges from the global trajectory
-                    ThisChg = [self.Charges[iframe][ThisIdx] for iframe in ThisFrm]
-                    ThisSpn = [self.Spins[iframe][ThisIdx] for iframe in ThisFrm]
-                    # Assign charges to positions (for convenience)
-                    for iframe in range(len(SlicePop)):
-                        for iatom in range(SlicePop.na):
-                            SlicePop.xyzs[iframe][iatom][0] = ThisChg[iframe][iatom]
-                            SlicePop.xyzs[iframe][iatom][1] = ThisSpn[iframe][iatom]
-                            SlicePop.xyzs[iframe][iatom][2] = 0.0
-                    # Write charges and spins to x and y coordinates in a duplicate .xyz file
-                    SlicePop.write(outfnm.replace('.xyz','.pop'),ftype='xyz')
-            if RxnSrl_ == RxnSrl: RxnSrl += 1
-
-        if self.printlvl >= 0: print
-        return
-
-    def PrintColors(self):
+    def writeColors(self):
         ColorNow = [-1 for i in range(self.na)]
         # Print header stuff
         header = """axes location Off
@@ -1241,8 +1674,9 @@ mol modstyle %i 0 VDW 0.150000 27.000000
         
         print >> self.moviefile, extra
         renderf = 0
-        for f in range(0, self.Frames, self.stride):
-            ColorByAtom = [self.ColorIdx[j] for j in self.IsoLabels[renderf]]
+        for f in range(0, self.ns):
+            ColorByAtom = self.traj_color[f]
+            # ColorByAtom = [self.ColorIdx[j] for j in self.IsoLabels[renderf]]
             print >> self.moviefile, "animate goto %i" % f
             print >> self.moviefile, "display resetview"
             print >> self.moviefile, "display height 4.0"
@@ -1261,54 +1695,13 @@ mol modstyle %i 0 VDW 0.150000 27.000000
                 print >> self.moviefile, "render snapshot frame%04i.tga" % renderf
             renderf += 1
         
-    def MakeGraphFromXYZ(self, sn, window=10):
-        G = MyG()
-        bonds = [[] for i in range(self.na)]
-        # lengths = []
-        for i, a in enumerate(self.elem):
-            G.add_node(i)
-            if parse_version(nx.__version__) >= parse_version('2.0'):
-                if 'atomname' in self.Data:
-                    nx.set_node_attributes(G,{i:self.atomname[i]}, name='n')
-                nx.set_node_attributes(G,{i:a}, name='e')
-                nx.set_node_attributes(G,{i:self.xyzs[sn][i]}, name='x')
-            else:
-                if 'atomname' in self.Data:
-                    nx.set_node_attributes(G,'n',{i:self.atomname[i]})
-                nx.set_node_attributes(G,'e',{i:a})
-                nx.set_node_attributes(G,'x',{i:self.xyzs[sn][i]})
-        if self.BO:
-            bond_bool = [self.BOMat[sn][ii, jj] > self.BOThre for (ii, jj) in self.AtomIterator]
-        else:
-            bond_bool = self.dxij[0] < self.BondThresh
-        for i, a in enumerate(bond_bool):
-            if not a: continue
-            (ii, jj) = self.AtomIterator[i]
-            bonds[ii].append(jj)
-            bonds[jj].append(ii)
-            G.add_edge(ii, jj)
-            # lengths.append(self.dxij[0][i])
-        self.BondLists.append(bondlist_tcl(bonds))
-        # self.BondLengths.append(lengths)
-        return G
-
     def Output(self):
         # Print final data to file.
-        self.moviefile = open('make-movie.tcl','w')
+        self.moviefile = open('/dev/null','w')
         self.colortab = open('color.dat','w')
-        self.PrintColors()
-        self.GetReactions()
+        self.writeColors()
+        self.writeReactionEvents()
+        # self.GetReactions()
         with open('bonds.dat','w') as bondtab: bondtab.write('\n'.join(self.BondLists)+'\n')
-        if self.bWrite:
-            if os.path.exists(self.fout):
-                user_input = raw_input("%s exists, enter a new file name or hit Enter to overwrite >>> " % self.fout)
-                if len(user_input.strip()) > 0:
-                    self.fout = user_input.strip()
-            print "Writing", self.fout
-            try:
-                self.write(self.fout, selection=range(0,self.Frames,self.stride))
-            except:
-                print "File write failed, check what you typed in."
-                self.fout = self.fnm
-        self.WriteChargeSpinLabels(range(0,self.Frames,self.stride))
+        self.WriteChargeSpinLabels()
 
