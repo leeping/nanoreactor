@@ -272,7 +272,7 @@ class MyG(nx.Graph):
         else:
             nx.set_node_attributes(self, 'x', xdict)
 
-def low_pass_smoothing(all_raw_time_series, sigma, dt_fs):
+def low_pass_smoothing(all_raw_time_series, sigma, dt_fs, reflect=True):
     """ 
     Low-pass smoothing function for bond order or interatomic distance time series.
     
@@ -285,6 +285,9 @@ def low_pass_smoothing(all_raw_time_series, sigma, dt_fs):
         Filter roll-off frequency expressed in wavenumbers.
     dt_fs : float
         Time step of time series expressed in femtoseconds.
+    reflect : bool, default=True
+        Add a reflection of the time series to itself prior to filtering, in order to remove
+        "jump" effects near the initial and final points.
 
     Returns
     -------
@@ -304,14 +307,8 @@ def low_pass_smoothing(all_raw_time_series, sigma, dt_fs):
     # Order of the Butterworth filter
     order = 6
     
-    # Frequency cutoff in units of the Nyquist frequency (half of the sampling rate.)
-    # Our timeseries will first be extended by appending the reversed data (minus first and last data points)
-    # in order to mitigate "tail" effects, for example:
-    # 0.3, 0.5, 0.7, 1.0 -> 0.3, 0.5, 0.7, 1.0, 0.7, 0.5
-    # Thus, the number of data points is N = 2.0*traj_length - 2.
-    # When the FFT is carried out, the frequency components corresponds to 0, 1.0/(N*dt), ..., (N-1)/(N*dt).
-    # The frequency spacing is 1.0/(N*dt) and the Nyquist frequency is half the sampling rate (1/2*dt)
-    # Thus, a frequency cutoff provided in wavenumber will first be converted to units of the inverse timestep as:
+    # Calculate frequency cutoff in units of the Nyquist frequency (half of the sampling rate.)
+    # First convert to units of the sampling rate (inverse timestep) then multiply by 2:
     # 
     # sigma      1 cm       dt_fs * fs        
     # ----- * ---------- * ------------ * 2 = low_cutoff
@@ -322,36 +319,45 @@ def low_pass_smoothing(all_raw_time_series, sigma, dt_fs):
     # 3) Cutoff frequency in units of sampling rate dt^-1
     # 4) Cutoff frequency in units of Nyquist frequency
     low_cutoff = float(sigma)/conversion * 2.0
+    
     # Create Butterworth filter coefficients
     b, a = butter(order, low_cutoff, btype='low')
-    # Create the doubled time series
-    reflected = np.fliplr(all_raw_time_series)
-    # remove the enpoints of the reflected
-    reflected = np.delete(reflected, -1, axis=1)
-    reflected = np.delete(reflected, 0, axis=1)
-    # attach the signal end-to-end with its reflection. The purpose of this is is get rid of the tailing issue
-    doubled_series = np.hstack((all_raw_time_series, reflected))
-    new_len = len(doubled_series[0]) # length of doubled end-to-end time series
-    # list of elements that make up the reflected portion (to be used to remove the reflected portion later on)
-    removal_list = range(traj_length, new_len)
-    # create the frequency portion (for plotting)
-    w, h = freqz(b, a, worN=traj_length)
-    # fast fourier transform
-    ft = np.fft.fft(doubled_series)
-    abs_of_h = abs(h) # butterworth filter
-    reverse_h = np.flipud(abs_of_h)
-    reverse_h = np.delete(reverse_h, -1, axis=0)
-    reverse_h = np.delete(reverse_h, 0, axis=0)
-    # handmade Butterworth filter (accounting for the doubled data)
-    modified_filter = np.hstack((abs_of_h, reverse_h))
-    # multiply the FT by the filter to filter out higher frequencies
-    ft_filtered = ft*abs(modified_filter)
-    filtered = np.fft.ifft(ft_filtered)
-    # Delete the data from the reflection addition
-    filtered = np.delete(filtered, removal_list, axis=1)
-    ft_original = np.delete(ft, removal_list, axis=1)
-    ft_filtered = np.delete(ft_filtered, removal_list, axis=1)
-    freqx = w*conversion/(2*np.pi)
+
+    reflect = True
+    if reflect:
+        # Create the doubled time series
+        reflected = np.fliplr(all_raw_time_series)
+        # remove the enpoints of the reflected
+        reflected = np.delete(reflected, -1, axis=1)
+        reflected = np.delete(reflected, 0, axis=1)
+        # attach the signal end-to-end with its reflection. The purpose of this is is get rid of the tailing issue
+        doubled_series = np.hstack((all_raw_time_series, reflected))
+        new_len = len(doubled_series[0]) # length of doubled end-to-end time series
+        # list of elements that make up the reflected portion (to be used to remove the reflected portion later on)
+        removal_list = range(traj_length, new_len)
+        # create the frequency portion (for plotting)
+        w, h = freqz(b, a, worN=new_len, whole=True)
+        # fast fourier transform
+        ft = np.fft.fft(doubled_series)
+        ft_filtered = ft*abs(h)
+        filtered = np.fft.ifft(ft_filtered)
+        # Delete the data from the reflection addition
+        filtered = np.delete(filtered, removal_list, axis=1)
+        ft_original = np.delete(ft, removal_list, axis=1)
+        ft_filtered = np.delete(ft_filtered, removal_list, axis=1)
+        w = np.delete(w, removal_list)
+        freqx = w*conversion/(2*np.pi)
+    else:
+        # create the frequency portion (for plotting)
+        w, h = freqz(b, a, worN=traj_length, whole=True)
+        abs_of_h = abs(h) # butterworth filter
+        # fast fourier transform
+        ft_original = np.fft.fft(all_raw_time_series)
+        # multiply the FT by the filter to filter out higher frequencies
+        ft_filtered = ft_original*abs_of_h
+        filtered = np.fft.ifft(ft_filtered)
+        freqx = w*conversion/(2*np.pi)
+        
     return abs(filtered), freqx, ft_original, ft_filtered
 
 def load_bondorder(boin, thre, traj_length):
@@ -718,17 +724,34 @@ class Nanoreactor(Molecule):
                 ax1.set_ylim(y1lim)
                 ax1.set_yticks(y1ticks)
                 # Plot spectrum of the BO time series on the right panels
-                ax2 = fig.add_axes([0.58, 0.87-0.09*fign, 0.37, 0.09])
-                ax2.plot(freqx, np.abs(ft[i]), color='#1e90ff', linewidth=0.5)
-                ax2.plot(freqx, np.abs(ft_lp[i]), color='#ff6302', linewidth=0.5)
+                ax2 = fig.add_axes([0.58, 0.87-0.09*fign, 0.36, 0.09])
+                ax2.plot(freqx, np.abs(ft[i]**2), color='#1e90ff', linewidth=0.5)
+                ax2.plot(freqx, np.abs(ft_lp[i]**2), color='#ff6302', linewidth=0.5)
                 # Dotted vertical line showing frequency cutoff
                 ax2.axvline(freqCut, color='k', linestyle='--', linewidth=0.75)
                 ai, aj = tsPairs[i]
                 ax2.text(0.9, 0.8, '%s-%s %i-%i' % (self.elem[ai], self.elem[aj], ai+1, aj+1),
                          horizontalalignment='right', verticalalignment='center', transform=ax2.transAxes)
-                ax2.set_xlim([0, freqCut*4])
-                ax2.set_ylim([0, y2fac*ft[i].shape[0]])
+                highFreq = False
+                if highFreq:
+                    ax2.set_xlim([0, 5000])
+                    ax2.set_ylim([0, y2fac*0.01*(ft[i].shape[0])**2])
+                else:
+                    ax2.set_xlim([0, freqCut*4])
+                    ax2.set_ylim([0, y2fac*(ft[i].shape[0])**2])
                 ax2.set_yticks([])
+
+                ax2b = ax2.twinx()
+                ax2b.plot(freqx, np.abs(ft_lp[i]**2)/np.abs(ft[i]**2), color='r', linestyle='--', linewidth=0.75)
+                ax2b.axhline(0.5, color='k', linestyle='--', linewidth=0.75)
+                if highFreq:
+                    ax2b.set_xlim([0, 5000])
+                else:
+                    ax2b.set_xlim([0, freqCut*4])
+                ax2b.set_yscale('log')
+                ax2b.set_ylim([0.001, 10])
+                ax2b.set_yticks([0.01, 0.1, 1])
+                # ax2b.set_yticks([])
                 
                 # Plot histogram of the bond order / distance for this atom pair
                 ax3 = fig.add_axes([0.44, 0.87-0.09*fign, 0.06, 0.09])
