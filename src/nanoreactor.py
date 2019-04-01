@@ -7,7 +7,7 @@ import copy
 from collections import namedtuple, OrderedDict, defaultdict, Counter
 from chemistry import Elements, Radii
 from copy import deepcopy
-from molecule import Molecule, format_xyz_coord
+from molecule import AtomContact, BuildLatticeFromLengthsAngles, Molecule, format_xyz_coord
 import contact
 import itertools
 import time
@@ -245,6 +245,32 @@ class MyG(nx.Graph):
         if center:
             x -= x.mean(0)
         with open(fnm,'w') as f: f.writelines([i+'\n' for i in out])
+    def make_whole(self, a, b, c):
+        ''' Make the molecule whole in a rectilinear box '''
+        # x = nx.get_node_attributes(self,'x')
+        # print(x)
+        x = self.x().copy()
+        x0 = x[0]
+        dx = x - x0
+        # Apply the minimum image convention 
+        x[:,0] += a * (dx[:,0] < -a/2)
+        x[:,0] -= a * (dx[:,0] >  a/2)
+        x[:,1] += b * (dx[:,1] < -b/2)
+        x[:,1] -= b * (dx[:,1] >  b/2)
+        x[:,2] += c * (dx[:,2] < -c/2)
+        x[:,2] -= c * (dx[:,2] >  c/2)
+        xm = np.mean(x, axis=0)
+        if xm[0] > a: x[:,0] -= a
+        elif xm[0] < 0: x[:,0] += a
+        if xm[1] > b: x[:,1] -= b
+        elif xm[1] < 0: x[:,1] += b
+        if xm[2] > c: x[:,2] -= c
+        elif xm[2] < 0: x[:,2] += c
+        xdict = dict([(i, xi) for i, xi in zip(self.L(), x)])
+        if parse_version(nx.__version__) >= parse_version('2.0'):
+            nx.set_node_attributes(self, xdict, 'x')
+        else:
+            nx.set_node_attributes(self, 'x', xdict)
 
 def low_pass_smoothing(all_raw_time_series, sigma, dt_fs):
     """ 
@@ -395,7 +421,7 @@ def formulaSum(efList):
 class Nanoreactor(Molecule):
     def __init__(self, xyzin=None, qsin=None, properties='properties.txt', dt_fs=0.0, boin='bond_order.list', bothre=0.0,
                  enhance=1.4, mindist=1.0, printlvl=0, known=['all'], exclude=[], learntime=100, padtime=0, extract=False, frames=0, saverxn=True,
-                 neutralize=False, radii=[], plot=False):
+                 neutralize=False, radii=[], pbc=0.0, plot=False):
         #==========================#
         #         Settings         #
         #==========================#
@@ -435,6 +461,11 @@ class Nanoreactor(Molecule):
         if xyzin == None:
             raise Exception('Nanoreactor must be initialized with an .xyz file as the first argument')
         self.timing(super(Nanoreactor, self).__init__, "Loading molecule", xyzin)
+        # Rudimentary periodic boundary condition support; cubic box only.
+        # Later we can support more flexible PBCs by passing a trajectory format that supports them
+        # using code already in molecule.py
+        if pbc > 0.0:
+            self.boxes = [BuildLatticeFromLengthsAngles(pbc, pbc, pbc, 90.0, 90.0, 90.0) for i in range(len(self))]
             
         #===============================#
         #   Load charge and spin data   #
@@ -520,6 +551,7 @@ class Nanoreactor(Molecule):
         # self.traj_stable : Array that maps (frame, atom) to whether the molecule containing this atom is currently stable
         # self.known_iidx : List of isomers that are 'known', i.e. matching user-provided empirical formulas and excluded from coloring
         self.Isomers, self.MolIDs, self.TimeSeries, self.traj_iidx, self.traj_midx, self.traj_stable, self.known_iidx = self.timing(self.makeMoleculeGraphs, "Making molecule graphs")
+        if hasattr(self, 'boxes'): self.timing(self.makeWhole, "Making molecules whole")
         self.IsomerData, self.traj_color = self.timing(self.analyzeIsomers, "Analyzing isomers")
 
         #========================#
@@ -585,13 +617,18 @@ class Nanoreactor(Molecule):
         # Atom pair batch size for computing interatomic distance.
         # The maximum array size is batch_size * traj_length
         # (Avoids n_atom * n_atom * traj_length array)
-        batch = 1000
+        batch = 10000
         dxSparse = OrderedDict()
         dxThre = OrderedDict()
         # Build graphs from the distance matrices
         while i < len(self.AtomIterator):
+            if self.printlvl >= 2: print "%i/%i" % (i, len(self.AtomIterator))
             j = min(i+batch, len(self.AtomIterator))
-            dxij = contact.atom_distances(np.array(self.xyzs),self.AtomIterator[i:j])
+            if hasattr(self, 'boxes'):
+                boxes = np.array([[self.boxes[s].a, self.boxes[s].b, self.boxes[s].c] for s in range(len(self))])
+                dxij = AtomContact(np.array(self.xyzs), self.AtomIterator[i:j], box=boxes)
+            else:
+                dxij = AtomContact(np.array(self.xyzs), self.AtomIterator[i:j])
             dxmin = np.min(dxij, axis=0)
             thre = self.BondThresh[i:j]
             for k in np.where(dxmin < (thre*pad))[0]:
@@ -727,6 +764,7 @@ class Nanoreactor(Molecule):
                     ax1.set_xlabel('Time (fs)')
                     ax2.set_xlabel('Frequency (cm^-1)')
                     fout.savefig(fig, dpi=600)
+                    plt.close(fig)
                 else:
                     if fign == 5:
                         ax1.set_ylabel(y1label)
@@ -974,9 +1012,27 @@ class Nanoreactor(Molecule):
                 ef_str = ts['graph'].ef()
                 ts_str = ''.join([(u"/\u203E%i\u203E\\" % t[0]) if t[1] else ('_%i_' % t[0]) for t in encode(ts['raw_signal'])])
                 print (u"molecule index %i formula %s iidx %s atoms %s series %s" % (MolIDs.index(molID), ef_str, iidx_str, atom_str, ts_str)).encode('utf-8')
-                
+
         return Isomers, MolIDs, TimeSeries, traj_iidx, traj_midx, traj_stable, known_iidx
 
+    def makeWhole(self):
+        if not hasattr(self, 'boxes'): return
+        for molID, ts in self.TimeSeries.items():
+            frame = 0
+            G = ts['graph']
+            atoms = np.array(G.L())
+            for intvl, on_off in encode(ts['raw_signal']):
+                if on_off:
+                    for s in range(frame, frame+intvl):
+                        xdict = dict([(i, self.xyzs[s][i]) for i in atoms])
+                        if parse_version(nx.__version__) >= parse_version('2.0'):
+                            nx.set_node_attributes(G, xdict, 'x')
+                        else:
+                            nx.set_node_attributes(G, 'x', xdict)
+                        G.make_whole(self.boxes[s].a, self.boxes[s].b, self.boxes[s].c)
+                        self.xyzs[s][atoms] = np.array(G.x())
+                frame += intvl
+    
     def allStable(self, frame, atoms, direction):
         """
         Given a frame, set of atoms, and a direction, scan the trajectory 
@@ -1217,6 +1273,11 @@ class Nanoreactor(Molecule):
         if self.getMolIDs(frame1Pad, atoms) != molid1 or self.getMolIDs(frame2Pad, atoms) != molid2:
             print atoms, molid1, self.getMolIDs(frame1Pad, atoms), molid2, self.getMolIDs(frame2Pad, atoms),
             raise RuntimeError('padFrames malfunction')
+        if self.neutralize:
+            neu_molID, success = self.getNeutralizing(frame1, frame2, atoms)
+            molid1 += neu_molID
+            molid2 += neu_molID
+            atoms = np.array(sorted(list(itertools.chain(*[self.TimeSeries[molID]['graph'].L() for molID in molid1]))))
         formula1 = formulaSum([self.TimeSeries[molID]['graph'].ef() for molID in molid1])
         formula2 = formulaSum([self.TimeSeries[molID]['graph'].ef() for molID in molid2])
         # Create the reaction event object
@@ -1226,7 +1287,6 @@ class Nanoreactor(Molecule):
         if self.printlvl >= 2:
             print "Event ID:", EventID, "%s -> %s" % (formula1, formula2),
             print "Frames: %i-%i" % (frame1Pad, frame2Pad), "Molecule IDs: %s -> %s" % (molid1, molid2)
-        self.getNeutralizing(frame1, frame2, atoms)
         return EventID, Event
                         
     def findReactionEvents(self):
@@ -1584,7 +1644,6 @@ class Nanoreactor(Molecule):
             c_spn = np.mean(np.sum(self.Spins[frame1:frame2+1, c_atoms], axis=1))
             # The molecule must have a large enough charge/spin of the correct sign to neutralize the original atoms
             if np.abs(c_chg) > tol/2 and c_chg * chg < 0:
-                print molID, c_chg, c_spn, "Yerrs"
                 c_xyz = np.array(self.atom_select(c_atoms)[frames].xyzs)
                 # Get the squared distance matrix for every charged molecule with opposite sign
                 sq_dmat = np.zeros((xyz.shape[1], c_xyz.shape[1], len(frames)))
@@ -1637,8 +1696,7 @@ class Nanoreactor(Molecule):
             print "Neutralization %s: charge \x1b[94m%+.3f\x1b[0m -> \x1b[92m%+.3f\x1b[0m, spin %+.3f -> %+.3f" % ('success' if success else 'failure', chg, curr_chg, spn, curr_spn),
             if keep_molID: print "added %s (molIDs %s)" % (formulaSum([self.TimeSeries[m]['graph'].ef() for m in keep_molID]), ' '.join(keep_molID))
             else: print
-        counter_atoms = sorted(list(itertools.chain(*[self.TimeSeries[m]['graph'].L() for m in keep_molID])))
-        return counter_atoms, success
+        return keep_molID, success
 
     def writeColors(self):
         ColorNow = [-1 for i in range(self.na)]
@@ -1704,4 +1762,5 @@ mol modstyle %i 0 VDW 0.150000 27.000000
         # self.GetReactions()
         with open('bonds.dat','w') as bondtab: bondtab.write('\n'.join(self.BondLists)+'\n')
         self.WriteChargeSpinLabels()
+        if hasattr(self, 'boxes'): self.write('whole.xyz')
 

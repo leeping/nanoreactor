@@ -40,6 +40,7 @@ add_argument(parser, '-k', dest='known', nargs='+', help='Known empirical formul
 add_argument(parser, '-E', dest='exclude', nargs='+', help='Empirical formulas to be excluded from all reaction events',
              default=[], type=str)
 add_argument(parser, '-N', '--neutralize', help='Extract nearby molecules to neutralize the system', action='store_true')
+add_argument(parser, '--pbc', help='Simple periodic boundary support, specify cubic NVT box size in Angstrom.', default=0, type=float)
 add_argument(parser, '--radii', type=str, nargs="+", default=["Na","0.0","K","0.0"], help='Custom atomic radii for bond detection.')
 add_argument(parser, '--plot', action='store_true', help='Save interatomic distance or bond order time series to files.')
 
