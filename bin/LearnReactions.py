@@ -33,8 +33,10 @@ add_argument(parser, '-s', dest='dt_fs', help='Provide time step in femtoseconds
              default=0.0, type=float)
 add_argument(parser, '-p', dest='printlvl', help='Print level.  1: Print out unrectified time series. 2: Print out empirical formulas as they are discovered.',
              default=0, type=int)
+add_argument(parser, '-c', dest='cutoff', help='Cutoff frequency for lowpass filter in cm^-1. 100 cm^-1 is equivalent to 333.6 fs vibrational period. Pass zero to set equal to learntime.',
+             default=100.0, type=float)
 add_argument(parser, '-t', dest='learntime', help='Molecules that exist for at least this number of *femtoseconds* are recognized as stable in reaction event detection.',
-             default=100, type=int)
+             default=100.0, type=float)
 add_argument(parser, '-k', dest='known', nargs='+', help='Known empirical formulas not to be colored (type All to include all molecules in the first frame)',
              default=['all'], type=str)
 add_argument(parser, '-E', dest='exclude', nargs='+', help='Empirical formulas to be excluded from all reaction events',

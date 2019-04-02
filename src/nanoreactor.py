@@ -426,7 +426,7 @@ def formulaSum(efList):
 
 class Nanoreactor(Molecule):
     def __init__(self, xyzin=None, qsin=None, properties='properties.txt', dt_fs=0.0, boin='bond_order.list', bothre=0.0,
-                 enhance=1.4, mindist=1.0, printlvl=0, known=['all'], exclude=[], learntime=100, padtime=0, extract=False, frames=0, saverxn=True,
+                 enhance=1.4, mindist=1.0, printlvl=0, known=['all'], exclude=[], learntime=100.0, cutoff=100.0, padtime=0, extract=False, frames=0, saverxn=True,
                  neutralize=False, radii=[], pbc=0.0, plot=False):
         #==========================#
         #         Settings         #
@@ -511,9 +511,16 @@ class Nanoreactor(Molecule):
             self.dt_fs = dt_fs
         self.LearnTime = int(self.LearnTime / self.dt_fs)
         self.PadTime = int(self.PadTime / self.dt_fs)
+        if cutoff == 0.0:
+            self.freqCutoff = 33355.0/self.LearnTime
+        else:
+            self.freqCutoff = cutoff
             
         if self.printlvl >= 0: print "Done loading files"
         print "The simulation timestep is %.1f fs" % self.dt_fs
+        print "Identification time for molecules is %.1f fs" % self.LearnTime
+        print "Lowpass filter cutoff is %.1f cm^-1 (%.1f fs)" % (self.freqCutoff, 33355.0/self.freqCutoff)
+        print "Padding each reaction event with %.1f fs" % self.PadTime
         
         #==========================#
         #   Initialize Variables   #
@@ -525,7 +532,7 @@ class Nanoreactor(Molecule):
         # A time-series of atom-wise isomer labels.
         self.IsoLabels = []
         if self.boHave:
-            self.boFiltered = self.timing(self.tsFilter, "Filtering bond order time series", self.boSparse, self.boThre, 100, 'bo', 'plot_bo.pdf' if plot else None)
+            self.boFiltered = self.timing(self.tsFilter, "Filtering bond order time series", self.boSparse, self.boThre, self.freqCutoff, 'bo', 'plot_bo.pdf' if plot else None)
         else:
             # Replace default radii with custom radii.
             for i in range(0, len(radii), 2):
@@ -535,7 +542,7 @@ class Nanoreactor(Molecule):
                 print "Custom covalent radius for %2s : %.3f" % (atom_symbol, custom_rad)
             # Measure interatomic distances.
             self.dxSparse, self.dxThre = self.timing(self.measureDistances, "Measuring interatomic distances", self.sparsePad, mindist)
-            self.dxFiltered = self.timing(self.tsFilter, "Filtering distance time series", self.dxSparse, self.dxThre, 100, 'dx', 'plot_dx.pdf' if plot else None)
+            self.dxFiltered = self.timing(self.tsFilter, "Filtering distance time series", self.dxSparse, self.dxThre, self.freqCutoff, 'dx', 'plot_dx.pdf' if plot else None)
         # self.global_graphs : A list of all possible ways the atoms are connected in the whole system, consisting of a list of 2-tuples.
         # self.gg_frames : An OrderedDict that maps start_time : (index in self.global_graphs, end_time)
         # self.BondLists : A time series of VMD-formatted bond specifications for each frame in the trajectory.
@@ -678,13 +685,13 @@ class Nanoreactor(Molecule):
                 y1label = 'Distance (Angstrom)'
                 y1lim = [0, 5]
                 y1ticks = [1, 2, 3, 4]
-                y2fac = 1.0
+                y2fac = 0.1
             elif mode == 'bo':
                 title = 'Time series of bond order; lowpass filter %i cm^-1' % freqCut
                 y1label = 'Bond order'
                 y1lim = [0, 1]
                 y1ticks = [0.2, 0.4, 0.6, 0.8]
-                y2fac = 0.1
+                y2fac = 0.001
             else:
                 raise RuntimeError('mode %s not recognized' % mode)
             fout = PdfPages(plotFile)
