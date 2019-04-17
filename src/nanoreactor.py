@@ -339,7 +339,7 @@ def low_pass_smoothing(all_raw_time_series, sigma, dt_fs, reflect=True):
         w, h = freqz(b, a, worN=new_len, whole=True)
         # fast fourier transform
         ft = np.fft.fft(doubled_series)
-        ft_filtered = ft*abs(h)
+        ft_filtered = ft*abs(h) if low_cutoff > 0.0 else ft
         filtered = np.fft.ifft(ft_filtered)
         # Delete the data from the reflection addition
         filtered = np.delete(filtered, removal_list, axis=1)
@@ -354,7 +354,7 @@ def low_pass_smoothing(all_raw_time_series, sigma, dt_fs, reflect=True):
         # fast fourier transform
         ft_original = np.fft.fft(all_raw_time_series)
         # multiply the FT by the filter to filter out higher frequencies
-        ft_filtered = ft_original*abs_of_h
+        ft_filtered = ft_original*abs_of_h if low_cutoff > 0.0 else ft_original
         filtered = np.fft.ifft(ft_filtered)
         freqx = w*conversion/(2*np.pi)
         
@@ -511,15 +511,15 @@ class Nanoreactor(Molecule):
             self.dt_fs = dt_fs
         self.LearnTime = int(self.LearnTime / self.dt_fs)
         self.PadTime = int(self.PadTime / self.dt_fs)
-        if cutoff == 0.0:
-            self.freqCutoff = 33355.0/self.LearnTime
-        else:
-            self.freqCutoff = cutoff
+        self.freqCutoff = cutoff
             
         if self.printlvl >= 0: print "Done loading files"
         print "The simulation timestep is %.1f fs" % self.dt_fs
         print "Identification time for molecules is %.1f fs" % self.LearnTime
-        print "Lowpass filter cutoff is %.1f cm^-1 (%.1f fs)" % (self.freqCutoff, 33355.0/self.freqCutoff)
+        if self.freqCutoff == 0.0:
+            print "Skipping lowpass filter on time series"
+        else:
+            print "Lowpass filter cutoff is %.1f cm^-1 (%.1f fs)" % (self.freqCutoff, 33355.0/self.freqCutoff)
         print "Padding each reaction event with %.1f fs" % self.PadTime
         
         #==========================#
@@ -735,7 +735,8 @@ class Nanoreactor(Molecule):
                 ax2.plot(freqx, np.abs(ft[i]**2), color='#1e90ff', linewidth=0.5)
                 ax2.plot(freqx, np.abs(ft_lp[i]**2), color='#ff6302', linewidth=0.5)
                 # Dotted vertical line showing frequency cutoff
-                ax2.axvline(freqCut, color='k', linestyle='--', linewidth=0.75)
+                if freqCut > 0.0:
+                    ax2.axvline(freqCut, color='k', linestyle='--', linewidth=0.75)
                 ai, aj = tsPairs[i]
                 ax2.text(0.9, 0.8, '%s-%s %i-%i' % (self.elem[ai], self.elem[aj], ai+1, aj+1),
                          horizontalalignment='right', verticalalignment='center', transform=ax2.transAxes)
@@ -744,7 +745,7 @@ class Nanoreactor(Molecule):
                     ax2.set_xlim([0, 5000])
                     ax2.set_ylim([0, y2fac*0.01*(ft[i].shape[0])**2])
                 else:
-                    ax2.set_xlim([0, freqCut*4])
+                    ax2.set_xlim([0, freqCut*4 if freqCut > 0.0 else 1000])
                     ax2.set_ylim([0, y2fac*(ft[i].shape[0])**2])
                 ax2.set_yticks([])
 
@@ -754,7 +755,7 @@ class Nanoreactor(Molecule):
                 if highFreq:
                     ax2b.set_xlim([0, 5000])
                 else:
-                    ax2b.set_xlim([0, freqCut*4])
+                    ax2b.set_xlim([0, freqCut*4 if freqCut > 0.0 else 1000])
                 ax2b.set_yscale('log')
                 ax2b.set_ylim([0.001, 10])
                 ax2b.set_yticks([0.01, 0.1, 1])
