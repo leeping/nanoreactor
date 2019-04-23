@@ -4,6 +4,7 @@ import os, sys, math, re
 import numpy as np
 from itertools import islice
 from collections import defaultdict, OrderedDict
+from nanoreactor.nanoreactor import load_bondorder
 
 """
 In a folder that looks like this:
@@ -178,6 +179,32 @@ class Chunk(object):
         oxyz.close()
         opop.close()
         return fdata
+
+def bo_frame_change(traj_length):
+    fbo = os.path.join("gathered", "bond_order.list")
+    if not os.path.exists(fbo): return
+    boSparse_sorted = load_bondorder(fbo, 0.1, traj_length)
+    dm_all = None
+    for k, v in boSparse_sorted.items():
+        amask = np.ma.array(v, mask=(v==0.0))
+        am_fut = amask[1:]
+        am_now = amask[:-1]
+        dm = np.ma.abs(am_fut - am_now)
+        if dm_all is None:
+            dm_all = dm.copy()
+        else:
+            dm_all = np.ma.vstack((dm_all, dm.copy()))
+    maxVals = np.ma.max(dm_all, axis=0)
+    maxArgs = np.ma.argmax(dm_all, axis=0)
+    pairs = list(boSparse_sorted.keys())
+    pair1 = np.array([pairs[i][0] for i in maxArgs])
+    pair2 = np.array([pairs[i][1] for i in maxArgs])
+
+    maxVals = np.append(maxVals, 0)
+    pair1 = np.append(pair1, 0)
+    pair2 = np.append(pair2, 0)
+
+    return maxVals, pair1, pair2
             
 def main():
     if not os.path.exists("gathered"): os.makedirs("gathered")
@@ -208,6 +235,12 @@ def main():
     keys = [keys[i] for i in keep]
     fdata_arr = fdata_arr[:, np.array(keep)]
 
+    bo_change = True
+    if os.path.exists(os.path.join("gathered", "bond_order.list")) and bo_change:
+        maxVal, maxPair1, maxPair2 = bo_frame_change(fdata_arr.shape[0])
+        fdata_arr = np.hstack((fdata_arr, maxVal.reshape(-1, 1), maxPair1.reshape(-1, 1), maxPair2.reshape(-1, 1)))
+        keys += ['bo_maxd', 'bo_a1', 'bo_a2']
+
     # 3-tuple of format string, header format, header title
     key_info = {'frame' : ("Frame", "%7i", "%5s"),
                 'time' : ("Time(fs)", "%11.3f", "%11s"),
@@ -223,7 +256,10 @@ def main():
                 'n_carpar' : ("N(CPMD)", "%7i", "%7s"),
                 'scftime' : ("SCFTime", "%8.2f", "%8s"),
                 'walltime' : ("WallTime", "%8.2f", "%8s"),
-                'recover' : ("Recover", "%7i", "%7s")}
+                'recover' : ("Recover", "%7i", "%7s"),
+                'bo_maxd' : ("BO-MaxD", "%7.3f", "%7s"),
+                'bo_a1' : ("BO-At1", "%6i", "%6s"),
+                'bo_a2' : ("BO-At2", "%6i", "%6s")}
     fmt = ' '.join([key_info[k][1] for k in keys])
     header = ' '.join([(key_info[k][2] % key_info[k][0]) for k in keys])
     np.savetxt(os.path.join("gathered", "properties.txt"), fdata_arr, fmt=fmt, header=header)

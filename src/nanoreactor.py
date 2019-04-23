@@ -409,6 +409,7 @@ def load_bondorder(boin, thre, traj_length):
                     boMode = 0
     sortkeys = sorted(keys)
     boSparse_sorted = OrderedDict([(k, boSparse[k]) for k in sortkeys if np.max(boSparse[k]) > thre])
+
     return boSparse_sorted
 
 def formulaSum(efList):
