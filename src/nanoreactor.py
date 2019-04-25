@@ -15,6 +15,7 @@ from pkg_resources import parse_version
 from scipy.signal import butter, freqz
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
+plt.switch_backend('agg')
 
 ## Names of colors from VMD
 ColorNames = ["blue", "red", "gray", "orange", "yellow", 
@@ -1702,7 +1703,7 @@ class Nanoreactor(Molecule):
         spn = np.mean(np.sum(self.Spins[frame1:frame2+1, atoms], axis=1))
         # Don't add any molecules if the molecule is already neutralized
         if np.abs(chg) < tol:
-            return []
+            return [],[]
         if self.printlvl >= 2: print "Attempting to neutralize atoms %s (charge %+.3f spin %+.3f)" % (commadash(atoms), chg, spn)
         xyz = np.array(self.atom_select(atoms)[frames].xyzs)
         
