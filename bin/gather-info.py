@@ -92,6 +92,8 @@ class Chunk(object):
                         self.havedata = True
                     latest_frame = self.cumul.get(latest_macro, OrderedDict())
                     self.cumul[latest_macro] = latest_frame
+                    if latest_frame.get('n_scf', 0) == 0:
+                        latest_frame['bo_scf'] = scf_cycles
                     latest_frame['n_scf'] = latest_frame.get('n_scf', 0) + scf_cycles
                     latest_frame['n_adiis'] = latest_frame.get('n_adiis', 0) + adiis_cycles
                     latest_frame['n_grad'] = latest_frame.get('n_grad', 0) + 1
@@ -101,6 +103,7 @@ class Chunk(object):
                     efict = 0.0
                     if stepn == 0:
                         latest_frame['walltime'] = scf_time
+                        latest_frame['bo_time'] = scf_time
                         if self.monitor:
                             latest_frame['recover'] = 0
                     # "2" is because CPMonitor action not printed on the first step
@@ -113,6 +116,8 @@ class Chunk(object):
                     scf_time = 0.0
                 if "Time per MD step" in line:
                     latest_frame['walltime'] = latest_frame.get('walltime', 0.0) + float(line.split()[-2])
+                    if latest_frame.get('bo_time', 0) == 0:
+                        latest_frame['bo_time'] = float(line.split()[-2])
                 if self.monitor and "Taking action" in line:
                     action_type = line.split()[-2]
                     if "Normal Mode" not in line:
@@ -217,6 +222,7 @@ def main():
         chunks.append(chunk)
         print chunk
         cnum += 1
+    print "Writing concatenated trajectory ..."
     for i in range(len(chunks)-1):
         framedata += chunks[i].writexyz(start=chunks[i].fseq[0], end=chunks[i+1].fseq[0], mode='w' if i == 0 else 'a')
     framedata += chunks[-1].writexyz(mode='a')
@@ -237,32 +243,51 @@ def main():
 
     bo_change = True
     if os.path.exists(os.path.join("gathered", "bond_order.list")) and bo_change:
+        print
+        print "Computing per-frame bond order changes ..."
         maxVal, maxPair1, maxPair2 = bo_frame_change(fdata_arr.shape[0])
         fdata_arr = np.hstack((fdata_arr, maxVal.reshape(-1, 1), maxPair1.reshape(-1, 1), maxPair2.reshape(-1, 1)))
         keys += ['bo_maxd', 'bo_a1', 'bo_a2']
-
+        
     # 3-tuple of format string, header format, header title
-    key_info = {'frame' : ("Frame", "%7i", "%5s"),
-                'time' : ("Time(fs)", "%11.3f", "%11s"),
-                'ssq' : ("S-squared", "%11.6f", "%11s"),
-                'temp' : ("Temperature", "% 14.6f", "%14s"),
-                'potential' : ("Potential", "% 14.6f", "%14s"),
-                'kinetic' : ("Kinetic", "% 11.6f", "%11s"),
-                'efict' : ("Electron-KE", "% 14.6f", "%14s"),
-                'energy' : ("Total-Energy", "% 14.6f", "%14s"),
-                'n_scf' : ("N(SCF)", "%7i", "%7s"),
-                'n_adiis' : ("N(ADIIS)", "%7i", "%7s"),
-                'n_grad' : ("N(Grad)", "%7i", "%7s"),
-                'n_carpar' : ("N(CPMD)", "%7i", "%7s"),
-                'scftime' : ("SCFTime", "%8.2f", "%8s"),
-                'walltime' : ("WallTime", "%8.2f", "%8s"),
-                'recover' : ("Recover", "%7i", "%7s"),
-                'bo_maxd' : ("BO-MaxD", "%7.3f", "%7s"),
-                'bo_a1' : ("BO-At1", "%6i", "%6s"),
-                'bo_a2' : ("BO-At2", "%6i", "%6s")}
-    fmt = ' '.join([key_info[k][1] for k in keys])
-    header = ' '.join([(key_info[k][2] % key_info[k][0]) for k in keys])
-    np.savetxt(os.path.join("gathered", "properties.txt"), fdata_arr, fmt=fmt, header=header)
+    key_info = OrderedDict([('frame', ("Frame", "%7i", "%5s")),
+                            ('time', ("Time(fs)", "%11.3f", "%11s")),
+                            ('ssq', ("S-squared", "%11.6f", "%11s")),
+                            ('temp', ("Temperature", "% 14.6f", "%14s")),
+                            ('potential', ("Potential", "% 14.6f", "%14s")),
+                            ('kinetic', ("Kinetic", "% 11.6f", "%11s")),
+                            ('efict', ("Electron-KE", "% 14.6f", "%14s")),
+                            ('energy', ("Total-Energy", "% 14.6f", "%14s")),
+                            ('n_scf', ("N(SCF)", "%7i", "%7s")),
+                            ('n_adiis', ("N(ADIIS)", "%7i", "%7s")),
+                            ('n_grad', ("N(Grad)", "%7i", "%7s")),
+                            ('n_carpar', ("N(CPMD)", "%7i", "%7s")),
+                            ('scftime', ("SCFTime", "%8.2f", "%8s")),
+                            ('walltime', ("WallTime", "%8.2f", "%8s")),
+                            ('bo_scf', ("BOMD-NSCF", "%9i", "%9s")),
+                            ('bo_time', ("BOMD-Time", "%9.2f", "%9s")),
+                            ('recover', ("Recover", "%7i", "%7s")),
+                            ('bo_maxd', ("BO-MaxD", "%7.3f", "%7s")),
+                            ('bo_a1', ("BO-At1", "%6i", "%6s")),
+                            ('bo_a2', ("BO-At2", "%6i", "%6s"))])
+    for k in keys:
+        if k not in key_info:
+            raise RuntimeError('Please put %s in key_info' % k)
+    # fmt = ' '.join([key_info[k][1] for k in key_info if k in keys])
+    # header = ' '.join([(key_info[k][2] % key_info[k][0]) for k in key_info if k in keys])
+    fmt = []
+    header = []
+    keyOrder = []
+    for k in key_info:
+        if k in keys:
+            if 'recover' not in keys and k in ['bo_scf', 'bo_time']: continue
+            keyOrder.append(keys.index(k))
+            fmt.append(key_info[k][1])
+            header.append(key_info[k][2] % key_info[k][0])
+    fmt = ' '.join(fmt)
+    header = ' '.join(header)
+    keyOrder = np.array(keyOrder)
+    np.savetxt(os.path.join("gathered", "properties.txt"), fdata_arr[:, keyOrder], fmt=fmt, header=header)
 
 if __name__ == "__main__":
     main()
