@@ -15,6 +15,7 @@ from pkg_resources import parse_version
 from scipy.signal import butter, freqz
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
+plt.switch_backend('agg')
 
 ## Names of colors from VMD
 ColorNames = ["blue", "red", "gray", "orange", "yellow", 
@@ -477,6 +478,8 @@ class Nanoreactor(Molecule):
         self.boThre = bothre
         # Keep time series that come within this factor of the threshold
         self.sparsePad = 1.2
+        # Whether to align molecules / reactions prior to output
+        self.align = align
         
         #==========================#
         #   Load in the XYZ file   #
@@ -498,9 +501,11 @@ class Nanoreactor(Molecule):
             QSarr = np.array(QS.xyzs)
             self.Charges = QSarr[:, :, 0]
             self.Spins = QSarr[:, :, 1]
+            self.have_pop = True
         else:
             self.Charges = np.array([[0 for i in range(self.na)] for j in range(len(self))])
             self.Spins = np.array([[0 for i in range(self.na)] for j in range(len(self))])
+            self.have_pop = False
             
         #==========================#
         #   Load bond order data   #
@@ -1473,6 +1478,7 @@ class Nanoreactor(Molecule):
                                             ('stableIntervals', []), ('flag', flag), ('color', 1)])
 
         # For each molecule, allocate information into the isomer data
+        nFound = 0
         for midx, (molID, ts) in enumerate(self.TimeSeries.items()):
             iidx = ts['iidx']
             IData = IsomerData[iidx]
@@ -1489,6 +1495,7 @@ class Nanoreactor(Molecule):
                 IData['stableIndices'].append(ts['graph'].L())
                 if IData['flag'] == "Transient":
                     IData['flag'] = "Found"
+                    nFound += 1
 
         # Sort isomers according to the first frame that any instance of the isomer occurs.
         # Molecules that are transient are printed at the end.
@@ -1503,9 +1510,10 @@ class Nanoreactor(Molecule):
             print "%10s %20s %10s %10s %10s %10s %10s %10s %20s" % ("Index", "Formula", "Instances", "firstFound", "firstStabl", "maxStable", "meanStable", "Flag", "Color")
             print "="*120
         ColorNum = 0
+        nsave = 0
         for key in sorted(sortKeys):
             iidx = key[1]
-            IData = IsomerData[key[1]]
+            IData = IsomerData[iidx]
             if IData['flag'] == "Found":
                 IData['color'] = self.CoolColors[ColorNum % len(self.CoolColors)]
                 ColorNum += 1
@@ -1518,6 +1526,40 @@ class Nanoreactor(Molecule):
                 print "%10i %20s %10i %10i %10i %10i %10.2f %10s %20s" % (iidx, IData['graph'].ef(), len(IData['midx']), IData['firstFound'], firstStable, maxInterval,
                                                                           avgLife, IData['flag'], "%s (%i)" % (ColorNames[IData['color']], IData['color']))
 
+        # Save longest stable intervals to the 'isomers' folder
+        if self.save_molecules:
+            for key in sorted(sortKeys):
+                iidx = key[1]
+                IData = IsomerData[iidx]
+                if IData['flag'] == "Found":
+                    iintvl = np.argmax([s[1] for s in IData['stableIntervals']])
+                    frame, intvl = IData['stableIntervals'][iintvl]
+                    atoms = IData['stableIndices'][iintvl]
+                    traj_slice = self.atom_select(atoms)[frame:frame+intvl]
+                    odir = 'molecules'
+                    if not os.path.exists(odir): os.makedirs(odir)
+                    fout = 'molecule_%03i.xyz' % nsave
+                    formula = IData['graph'].ef()
+                    if self.printlvl >= 2: print "Writing iidx %i (%i/%i stable), frames %i-%i to file %s : %s" % (iidx, nsave+1, nFound, frame, frame+intvl, fout, formula)
+                    elif self.printlvl >= 1: print "Writing isomer %i/%i, frames %i-%i to file %s : %s" % (nsave+1, nFound, frame, frame+intvl, fout, formula)
+                    traj_slice.comms = ["%s atoms %s frame %i charge %+.3f sz %+.3f sz^2 %.3f"
+                                        % (formula, commadash(atoms), f, sum(self.Charges[f][atoms]),
+                                           sum(self.Spins[f][atoms]), sum([j**2 for j in self.Spins[f][atoms]])) for f in range (frame, frame+intvl)]
+                    if self.align:
+                        traj_slice.center()
+                        traj_slice.align()
+                    traj_slice.write(os.path.join(odir, fout))
+                    if self.have_pop:
+                        # Write .xyz-like file containing Mulliken charge and spin populations
+                        # in the first and second columns
+                        traj_slice_pop = deepcopy(traj_slice)
+                        pop_arr = np.zeros((len(traj_slice_pop), len(atoms), 3), dtype=float)
+                        pop_arr[:, :, 0] = self.Charges[frame:frame+intvl, atoms]
+                        pop_arr[:, :, 1] = self.Spins[frame:frame+intvl, atoms]
+                        traj_slice_pop.xyzs = list(pop_arr)
+                        traj_slice_pop.write(os.path.join(odir, fout.replace('.xyz', '.pop')), ftype='xyz')
+                    nsave += 1
+                    
         # Return trajectory of VMD color indices for visualization.
         traj_color = np.zeros((len(self), self.na), dtype='int')
         traj_color -= 1
@@ -1586,15 +1628,19 @@ class Nanoreactor(Molecule):
                     traj_slice.comms = ["%s atoms %s frame %i charge %+.3f sz %+.3f sz^2 %.3f"
                                         % (event['equation'], commadash(a), f, sum(self.Charges[f][a]),
                                            sum(self.Spins[f][a]), sum([j**2 for j in self.Spins[f][a]])) for f in range (fstart, fend+1)]
+                    if self.align:
+                        traj_slice.center()
+                        traj_slice.align()
                     traj_slice.write(os.path.join(odir, fout))
-                    # Write .xyz-like file containing Mulliken charge and spin populations
-                    # in the first and second columns
-                    traj_slice_pop = deepcopy(traj_slice)
-                    pop_arr = np.zeros((len(traj_slice_pop), len(atoms), 3), dtype=float)
-                    pop_arr[:, :, 0] = self.Charges[fstart:fend+1, atoms]
-                    pop_arr[:, :, 1] = self.Spins[fstart:fend+1, atoms]
-                    traj_slice_pop.xyzs = list(pop_arr)
-                    traj_slice_pop.write(os.path.join(odir, fout.replace('.xyz', '.pop')), ftype='xyz')
+                    if self.have_pop:
+                        # Write .xyz-like file containing Mulliken charge and spin populations
+                        # in the first and second columns
+                        traj_slice_pop = deepcopy(traj_slice)
+                        pop_arr = np.zeros((len(traj_slice_pop), len(atoms), 3), dtype=float)
+                        pop_arr[:, :, 0] = self.Charges[fstart:fend+1, atoms]
+                        pop_arr[:, :, 1] = self.Spins[fstart:fend+1, atoms]
+                        traj_slice_pop.xyzs = list(pop_arr)
+                        traj_slice_pop.write(os.path.join(odir, fout.replace('.xyz', '.pop')), ftype='xyz')
                     repeat += 1
                 
     def WriteChargeSpinLabels(self):
@@ -1673,7 +1719,7 @@ class Nanoreactor(Molecule):
         spn = np.mean(np.sum(self.Spins[frame1:frame2+1, atoms], axis=1))
         # Don't add any molecules if the molecule is already neutralized
         if np.abs(chg) < tol:
-            return []
+            return [],[]
         if self.printlvl >= 2: print "Attempting to neutralize atoms %s (charge %+.3f spin %+.3f)" % (commadash(atoms), chg, spn)
         xyz = np.array(self.atom_select(atoms)[frames].xyzs)
         
