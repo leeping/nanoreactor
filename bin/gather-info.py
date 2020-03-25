@@ -228,9 +228,11 @@ def main():
         print chunk
         cnum += 1
     print "Writing concatenated trajectory ..."
+    last_chunk_mode = 'w'
     for i in range(len(chunks)-1):
         framedata += chunks[i].writexyz(start=chunks[i].fseq[0], end=chunks[i+1].fseq[0], mode='w' if i == 0 else 'a')
-    framedata += chunks[-1].writexyz(mode='a')
+        last_chunk_mode = 'a'
+    framedata += chunks[-1].writexyz(mode=last_chunk_mode)
     fdata_arr = np.array([[]+d.values() for d in framedata])
     for i, d in enumerate(framedata):
         if i > 0 and keys != d.keys():
