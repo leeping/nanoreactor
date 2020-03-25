@@ -136,7 +136,9 @@ class Chunk(object):
 
     def writexyz(self, start=-1, end=-1, mode='a'):
         fxyz = open(os.path.join(self.dnm, 'scr', 'coors.xyz'))
+        vxyz = open(os.path.join(self.dnm, 'scr', 'vel.log'))
         oxyz = open(os.path.join("gathered", "trajectory.xyz"), mode=mode)
+        ovxyz = open(os.path.join("gathered", "velocity.xyz"), mode=mode)
         fdata = []
         fchg = open(os.path.join(self.dnm, 'scr', 'charge.xls'))
         fchg.readline()
@@ -157,6 +159,7 @@ class Chunk(object):
         while True:
             if len(fkeep) == 0: break
             xyzframe = list(islice(fxyz, self.na+2))
+            velframe = list(islice(vxyz, self.na+2))
             chgframe = fchg.readline()
             if have_spin: spnframe = fspn.readline()
             if self.elem is None:
@@ -171,6 +174,7 @@ class Chunk(object):
             if fnum in fkeep:
                 fdata.append(self.frames[fnum])
                 oxyz.writelines(xyzframe)
+                ovxyz.writelines(velframe)
                 chg = [float(i) for i in chgframe.split()]
                 spn = [float(i) for i in spnframe.split()] if have_spin else [0.0 for i in chgframe.split()]
                 popframe = ["%-5i\n" % self.na, xyzframe[1]]
@@ -182,6 +186,7 @@ class Chunk(object):
             if fnum == fkeep[-1]: break
         fxyz.close()
         oxyz.close()
+        ovxyz.close()
         opop.close()
         return fdata
 

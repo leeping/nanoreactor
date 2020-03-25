@@ -444,15 +444,15 @@ def formulaSum(efList):
 
 class Nanoreactor(Molecule):
     def __init__(self, xyzin=None, qsin=None, properties='properties.txt', dt_fs=0.0, boin='bond_order.list', bothre=0.0,
-                 enhance=1.4, mindist=1.0, printlvl=0, known=['all'], exclude=[], learntime=100.0, cutoff=100.0, padtime=0, extract=False, frames=0, saverxn=True,
+                 enhance=1.4, mindist=1.0, printlvl=0, known=['all'], exclude=[], learntime=100.0, cutoff=100.0, padtime=0, save_molecules=False, frames=0, saverxn=True,
                  neutralize=False, radii=[], pbc=0.0, plot=False):
         #==========================#
         #         Settings         #
         #==========================#
         # Enhancement factor for determining whether two atoms are bonded
         self.Fac = enhance
-        # Switch for whether to extract molecules.
-        self.extract = extract
+        # Switch for whether to save molecules to disk.
+        self.save_molecules = save_molecules
         # Switch for printing make-movie.tcl ; this is not necessary and may be deprecated soon
         self.Render = False
         # Known molecules to be excluded from coloring (by empirical formula)
