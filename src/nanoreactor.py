@@ -445,7 +445,7 @@ def formulaSum(efList):
 class Nanoreactor(Molecule):
     def __init__(self, xyzin=None, qsin=None, properties='properties.txt', dt_fs=0.0, boin='bond_order.list', bothre=0.0,
                  enhance=1.4, mindist=1.0, printlvl=0, known=['all'], exclude=[], learntime=100.0, cutoff=100.0, padtime=0, save_molecules=False, frames=0, saverxn=True,
-                 neutralize=False, radii=[], pbc=0.0, plot=False):
+                 neutralize=False, radii=[], align=False, pbc=0.0, plot=False):
         #==========================#
         #         Settings         #
         #==========================#
