@@ -409,6 +409,23 @@ def load_bondorder(boin, thre, traj_length):
                     boMode = 0
     sortkeys = sorted(keys)
     boSparse_sorted = OrderedDict([(k, boSparse[k]) for k in sortkeys if np.max(boSparse[k]) > thre])
+
+    # LPW 2020-03-24 commented out for now
+    # dm_all = None
+    # for k, v in boSparse_sorted.items():
+    #     amask = np.ma.array(v, mask=(v==0.0))
+    #     am_fut = amask[1:]
+    #     am_now = amask[:-1]
+    #     dm = np.ma.abs(am_fut - am_now)
+    #     if dm_all is None:
+    #         dm_all = dm.copy()
+    #     else:
+    #         dm_all = np.ma.vstack((dm_all, dm.copy()))
+    # maxVals = np.ma.max(dm_all, axis=0)
+    # maxArgs = np.ma.argmax(dm_all, axis=0)
+    # pairs = list(boSparse_sorted.keys())
+    # for i in range(dm_all.shape[1]):
+    #     print "%5i % .4f %i %i" % (i, maxVals[i], pairs[maxArgs[i]][0], pairs[maxArgs[i]][1])
     return boSparse_sorted
 
 def formulaSum(efList):
