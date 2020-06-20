@@ -1,4 +1,4 @@
-#!/home/leeping/local/bin/python
+#!/usr/bin/env python
 
 #=========================================================================#
 #|                                                                       |#
@@ -31,45 +31,111 @@
 #=========================================================================#
 
 import os
+import re
 import argparse
+from numpy.random import randint
+from collections import OrderedDict
 
 #==========================#
 #     Parse arguments.     #
 #==========================#
 
-# Taken from MSMBulder - it allows for easy addition of arguments and allows "-h" for help.
-def add_argument(group, *args, **kwargs):
-    if 'default' in kwargs:
-        d = 'Default: {d}'.format(d=kwargs['default'])
-        if 'help' in kwargs:
-            kwargs['help'] += ' {d}'.format(d=d)
-        else:
-            kwargs['help'] = d
-    group.add_argument(*args, **kwargs)
-
 parser = argparse.ArgumentParser()
-add_argument(parser, '--gpus', help='Specify the number of graphics processing units.',
-             default=4, type=int)
-add_argument(parser, '--rsync', help='Time interval (s) for rsyncing the scratch directories, zero to disable.',
-             default=180, type=int)
-add_argument(parser, '--auto', help='Use this argument of the job is automatically submitted.',
-             action='store_true', default=False) 
-add_argument(parser, '--long', help='Submit the queue to the Long Queue.',
-             action='store_true', default=False) 
-add_argument(parser, '--name', help='Specify the name of the job being submitted.',
-             default='default', type=str) 
-add_argument(parser, '--hold', help='Specify the job number used to hold the submitted job (useful if a job is resubmitting using this script).',
-             default=0, type=int)
-add_argument(parser, '--gpucc', help='Specify the required GPU compute capability (default 2.0 for Fermi cards, but possible to go to 1.3).',
-             default="2.0|3.0|3.5|5.0", type=str)
+parser.add_argument('--gpus', type=int, default=1, help='Specify the number of graphics processing units.')
+parser.add_argument('--auto', action='store_true', help='Use this argument of the job is automatically submitted.') 
+parser.add_argument('--time', type=str, default="24:00:00", help='Specify a hh:mm:ss time limit for the job.')
+parser.add_argument('--name', type=str, default='default', help='Specify the name of the job being submitted.')
+parser.add_argument('--tera', type=str, default='/home/leeping/opt/terachem/current/bin/terachem', help='Specify absolute path of TeraChem executable.')
+parser.add_argument('--hold', type=int, default=0, help='Specify the job number used to hold the submitted job (not necessary if submitting by hand).')
 
-print
-print " #=========================================#"
-print " #     Nanoreactor MD launching script     #"
-print " #  Use the -h argument for detailed help  #"
-print " #=========================================#"
-print
+print()
+print(" #=========================================#")
+print(" #     Nanoreactor MD launching script     #")
+print(" #  Use the -h argument for detailed help  #")
+print(" #=========================================#")
+print()
 args = parser.parse_args()
+
+def edit_tcin(fin=None, fout=None, options={}, defaults={}):
+    """
+    Parse, modify, and/or create a TeraChem input file.
+
+    Parameters
+    ----------
+    fin : str, optional
+        Name of the TeraChem input file to be read
+    fout : str, optional
+        Name of the TeraChem output file to be written, if desired
+    options : dict, optional
+        Dictionary of options to overrule TeraChem input file. Pass None as value to delete a key.
+    defaults : dict, optional
+        Dictionary of options to add to the end
+    
+    Returns
+    -------
+    dictionary
+        Keys mapped to values as strings.  Certain keys will be changed to integers (e.g. charge, spinmult).
+        Keys are standardized to lowercase.
+    """
+    intkeys = ['charge', 'spinmult']
+    Answer = OrderedDict()
+    # Read from the input if provided
+    if fin is not None:
+        for line in open(fin).readlines():
+            line = line.split("#")[0].strip()
+            if len(line) == 0: continue
+            if line == 'end': break
+            s = line.split(' ', 1)
+            k = s[0].lower()
+            v = s[1].strip()
+            if k == 'coordinates':
+                if not os.path.exists(v.strip()):
+                    raise RuntimeError("TeraChem coordinate file does not exist")
+            if k in intkeys:
+                v = int(v)
+            if k in Answer:
+                raise RuntimeError("Found duplicate key in TeraChem input file: %s" % k)
+            Answer[k] = v
+    # Replace existing keys with ones from options
+    for k, v in list(options.items()):
+        Answer[k] = v
+    # Append defaults to the end
+    for k, v in list(defaults.items()):
+        if k not in list(Answer.keys()):
+            Answer[k] = v
+    for k, v in list(Answer.items()):
+        if v is None:
+            del Answer[k]
+    # Print to the output if provided
+    havekeys = []
+    if fout is not None:
+        with open(fout, 'w') as f:
+            # If input file is provided, try to preserve the formatting
+            if fin is not None:
+                for line in open(fin).readlines():
+                    # Find if the line contains a key
+                    haveKey = False
+                    uncomm = line.split("#", 1)[0].strip()
+                    # Don't keep anything past the 'end' keyword
+                    if uncomm.lower() == 'end': break
+                    if len(uncomm) > 0: 
+                        haveKey = True
+                        comm = line.split("#", 1)[1].replace('\n','') if len(line.split("#", 1)) == 2 else ''
+                        s = line.split(' ', 1)
+                        w = re.findall('[ ]+',uncomm)[0]
+                        k = s[0].lower()
+                        if k in Answer:
+                            line_out = k + w + str(Answer[k]) + comm
+                            havekeys.append(k)
+                        else:
+                            line_out = line.replace('\n', '')
+                    else:
+                        line_out = line.replace('\n', '')
+                    print(line_out, file=f)
+            for k, v in list(Answer.items()):
+                if k not in havekeys:
+                    print("%-15s %s" % (k, str(v)), file=f)
+    return Answer
 
 #==========================#
 #  Determine chunk number  #
@@ -90,17 +156,17 @@ if args.name == 'default':
 else:
     jobname = args.name
 
-if args.long:
-    queue="gpulongq"
-    hrt="330:00:00"
-else:
-    # queue="gpuq@fire-20-*\n#$-q gpuq@fire-09-*"
-    queue="gpuq"
-    hrt="36:00:00"
+# if args.long:
+#     queue="gpulongq"
+#     hrt="330:00:00"
+# else:
+#     # queue="gpuq@fire-20-*\n#$-q gpuq@fire-09-*"
+#     queue="gpuq"
+#     hrt="36:00:00"
 
 hold=""
 if args.hold > 0:
-    hold = "#$ -hold_jid %i\n" % args.hold
+    hold = "#SBATCH -d afterany:%i\n" % args.hold
 
 # Crash if the job already exists in the queue.
 # Currently doesn't work because recently deleted jobs are still reported by qstat -j.
@@ -113,10 +179,10 @@ if args.hold > 0:
 # if Crash:
 #     raise Exception("A running job already exists with the same name.  Either delete the running job or rename this one.")
 
-if args.rsync == 0:
-    interval = 8640000 # 100 days.
-else:
-    interval = args.rsync
+# if args.rsync == 0:
+#     interval = 8640000 # 100 days.
+# else:
+#     interval = args.rsync
 
 #===========================#
 #   Check if files exist:   #
@@ -128,10 +194,11 @@ if not os.path.exists(fnm):
 
 if os.path.exists(dnm):
     if not os.path.exists(os.path.join(dnm,'run.out')) and not os.path.exists(os.path.join(dnm,'scr','coors.xyz')):
-        print "The directory pointed to by the .chunk file exists but contains no data - ok."
+        print("The directory pointed to by the .chunk file exists but contains no data - ok.")
     else:
         raise Exception("The directory pointed to by the .chunk file exists and contains data - script will not continue.")
-os.makedirs(dnm)
+else:
+    os.makedirs(dnm)
 if chunk > 0 and not os.path.exists(prevd):
     raise Exception("The directory containing the previous chunk (%s) doesn't exist!" % prevd)
 
@@ -139,29 +206,35 @@ if chunk > 0 and not os.path.exists(prevd):
 #  Create copy of TeraChem  #
 #   input file with #gpus   #
 #===========================#
+
+fnm = "guess.in"
+makeGuess = False
+if chunk == 0 and os.path.exists(fnm):
+    makeGuess = True
+    tcg = edit_tcin(fin=fnm)
+    tcg['gpus'] = args.gpus
+    edit_tcin(fin=fnm, fout=os.path.join(dnm, 'guess.in'), options=tcg)
+
 fnm = "start.in"
 if not os.path.exists(fnm):
     raise Exception('The %s file does not exist!' % fnm)
-f = open(fnm).readlines()
-o = open(os.path.join(dnm,'run.in'),'w')
-have_restart = False
-for l in f:
-    s = [i.lower() for i in l.split()]
-    if len(s) >= 1 and s[0] == 'gpus':
-        print >> o, "gpus %i" % args.gpus
-    elif len(s) >= 1 and s[0] == 'restartmd':
-        have_restart = True
-        if chunk == 0:
-            continue
+
+tcin = edit_tcin(fin=fnm)
+tcin['gpus'] = args.gpus
+if tcin.get('coordinates','none') != 'start.xyz':
+    raise Exception('TeraChem input file must have coordinates start.xyz')
+if chunk > 0: 
+    tcin['restartmd'] = 'restart.md'
+    if 'guess' in tcin: del tcin['guess']
+else:
+    if 'restartmd' in tcin: del tcin['restartmd']
+    if makeGuess:
+        if tcin['method'][0] == 'u':
+            tcin['guess'] = 'ca0 cb0'
         else:
-            print >> o, l,
-    elif len(s) >= 1 and s[0] == 'end':
-        if not have_restart and chunk > 0:
-            print >> o, 'restartmd restart.md'
-        print >> o, l,
-    else:
-        print >> o, l,
-o.close()
+            tcin['guess'] = 'c0'
+
+edit_tcin(fin=fnm, fout=os.path.join(dnm, 'run.in'), options=tcin)
 
 os.system('cp start.xyz %s' % dnm)
 
@@ -171,124 +244,108 @@ os.system('cp start.xyz %s' % dnm)
 #     in chunk directory     #
 #============================#
 
-fixedatoms = 0
-fnm = "fixed_atoms"
-if os.path.exists(fnm):
-    os.system('cp fixed_atoms %s' % dnm)
-    fixedatoms = 1
+# LPW: Enable this functionality later
 
-surface_on = 0
-fnm = "surface.xyz"
-if os.path.exists(fnm):
-    os.system('cp surface.xyz %s' % dnm)
-    surface_on = 1
+# fixedatoms = 0
+# fnm = "fixed_atoms"
+# if os.path.exists(fnm):
+#     os.system('cp fixed_atoms %s' % dnm)
+#     fixedatoms = 1
+
+# surface_on = 0
+# fnm = "surface.xyz"
+# if os.path.exists(fnm):
+#     os.system('cp surface.xyz %s' % dnm)
+#     surface_on = 1
 
 os.chdir(dnm)
 
-# -fout scr/coors.xyz {dnm}/scr/coors.xyz
-# -fout scr/restart.md {dnm}/scr/restart.md
-# -fout scr/restart.mdRnd {dnm}/scr/restart.mdRnd
-# -fout scr/charge.xls {dnm}/scr/charge.xls
-# -fout scr/vel.log {dnm}/scr/vel.log
-# -fout scr/log.xls {dnm}/scr/log.xls
-
-
 fout="""\
-#!/bin/bash
-#$ -N {jobname}
-#$ -l gpus=1
-#$ -l h_rss=8G
-#$ -l gpucc={gpucc}
-#$ -l h_rt={hrt}
-#$ -pe smp {gpus}
-#$ -cwd
-#$ -q "{queue}"
-# -fin start.xyz
-# -fin run.in
-{fixed}{surface}# -fout scr/* scr/
+#!/bin/bash -l
+#SBATCH -J {jobname}
+#SBATCH -p gpu
+#SBATCH -N 1
+#SBATCH -c 2
+#SBATCH -n {gpus}
+#SBATCH --mem={mem}
+#SBATCH --gres=gpu:{gpus}
+#SBATCH --time={time}
 {hold}
+
 # This file was generated by {scriptname}
 # Job is submitted in chunk_xxxx directory
 # The "$working" directory is one level up.
 # Not copying back the restart.md saves space, as long as
 # we remember that restart.md always comes from the scratch folder
 # of the LAST chunk.
-# =fout restart.md
-# =fout restart.mdRnd
 
-rsync_fork() {{
-while true; do
-    sleep {interval}
-    rsync -auvz $SGE_O_TEMPDIR/scr/ $SGE_O_WORKDIR/scr/
-done
-}}
-
-learn_fork() {{
-# Consolidate output files.
-gather-info.py
-mkdir -p Consolidated
-mv energies.txt temperatures.txt all-coors.xyz charge-spin.txt bond-orders.txt Consolidated
-# Identify reaction products!
-cd Consolidated
-rm -f extract_*.xyz
-# Run LearnReactions.py.  
-# Custom arguments are available by creating a script somewhere above
-# the folder where this is run. The closer the script to the current
-# folder, the higher the priority. (This is like a PATH environment variable)
-d=$PWD
-while true ; do
-    echo $d
-    if [[ -f $d/learn.sh ]] ; then
-        chmod +x $d/learn.sh
-        cmd=$d/learn.sh
-        break
-    elif [[ ${{#d}} -eq 1 ]] ; then
-        cmd="LearnReactions.py all-coors.xyz"
-        break
-    fi
-    d=$(dirname $d)
-done
-echo $cmd
-$cmd
-rm charge-spin.txt.bz2
-rm bond-orders.txt.bz2
-bzip2 charge-spin.txt
-bzip2 bond-orders.txt
-cd ..
-}}
+# LPW: Implement this later.
+# learn_fork() {{
+# # Consolidate output files.
+# gather-info.py
+# mkdir -p Consolidated
+# mv energies.txt temperatures.txt all-coors.xyz charge-spin.txt bond-orders.txt Consolidated
+# # Identify reaction products!
+# cd Consolidated
+# rm -f extract_*.xyz
+# # Run LearnReactions.py.  
+# # Custom arguments are available by creating a script somewhere above
+# # the folder where this is run. The closer the script to the current
+# # folder, the higher the priority. (This is like a PATH environment variable)
+# d=$PWD
+# while true ; do
+#     echo $d
+#     if [[ -f $d/learn.sh ]] ; then
+#         chmod +x $d/learn.sh
+#         cmd=$d/learn.sh
+#         break
+#     elif [[ ${{#d}} -eq 1 ]] ; then
+#         cmd="LearnReactions.py all-coors.xyz"
+#         break
+#     fi
+#     d=$(dirname $d)
+# done
+# echo $cmd
+# $cmd
+# rm charge-spin.txt.bz2
+# rm bond-orders.txt.bz2
+# bzip2 charge-spin.txt
+# bzip2 bond-orders.txt
+# cd ..
+# }}
 
 #======================================#
 #|   Personal environment variables   |#
 #======================================#
-. /etc/bashrc
-. /etc/profile
+# . /etc/bashrc
+# . /etc/profile
 working={cwd}
-export PATH=$HOME/bin:$HOME/local/bin:$PATH
-export LD_LIBRARY_PATH=$HOME/local/lib:$LD_LIBRARY_PATH
+# export PATH=$HOME/bin:$HOME/local/bin:$PATH
+# export LD_LIBRARY_PATH=$HOME/local/lib:$LD_LIBRARY_PATH
 #======================================#
 #|      Intel compiler variables      |#
 #======================================#
-. /opt/intel/composer_xe_2013_sp1.3.174/bin/iccvars.sh intel64
-. /opt/intel/composer_xe_2013_sp1.3.174/bin/ifortvars.sh intel64
+# . /opt/intel/composer_xe_2013_sp1.3.174/bin/iccvars.sh intel64
+# . /opt/intel/composer_xe_2013_sp1.3.174/bin/ifortvars.sh intel64
 #======================================#
 #|     CUDA environment variables     |#
 #|        From Fire modulefile        |#
 #======================================#
-module unload cuda
-module load cuda/6.5
+# module unload cuda
+# module load cuda/9.0
 #======================================#
 #|   TeraChem environment variables   |#
 #======================================#
-export TeraChem=$HOME/opt/terachem
+export TeraChem={terapath}
 export PATH=$TeraChem/bin:$PATH
 export LD_LIBRARY_PATH=$TeraChem/lib:$LD_LIBRARY_PATH
 #======================================#
 #|  Grid Engine environment variables |#
 #======================================#
-export SGE_ROOT=/opt/sge
-export SGE_CELL=default
-export SGE_CLUSTER_NAME=p6444
-export PATH=$SGE_ROOT/bin/linux-x64:$PATH
+# export SGE_ROOT=/opt/sge
+# export SGE_CELL=default
+# export SGE_CLUSTER_NAME=p6444
+# export PATH=$SGE_ROOT/bin/linux-x64:$PATH
 #======================================#
 #|    Go into my working directory    |#
 #======================================#
@@ -300,7 +357,7 @@ cd $working
 #======================================#
 if [ -f .chunk ] ; then
     chunk=$(cat .chunk)
-    learn_fork &
+#     learn_fork &
     # Move pesky SGE output files to their own directory.
     # Now they are generated in the chunk directories...
     # mkdir -p sge_logfiles
@@ -314,36 +371,51 @@ echo $next_chunk > .chunk
 #|        Submit the next job         |#
 #======================================#
 if (( chunk < 200 )) ; then
-    qtcmd.py --auto --hold $JOB_ID --gpus {gpus} --gpucc "{gpucc}" --name "{jobname}" {long}
+    qtcmd.py --auto --hold $SLURM_JOB_ID --gpus {gpus} --name "{jobname}" --time {time} --tera {tera}
 fi
 #======================================#
 #|  Go into the temporary directory   |#
 #======================================#
 dnm=$(printf "chunk_%04i" $chunk)
-mkdir -p $dnm/scr
-echo "$HOSTNAME:$SGE_O_TEMPDIR/scr" > $dnm/scr/scratch.remote
-touch $dnm/scr/rsync_every_{interval}_seconds
-cd $SGE_O_TEMPDIR
+# mkdir -p $dnm/scr
+# echo "$HOSTNAME:$SGE_O_TEMPDIR/scr" > $dnm/scr/scratch.remote
+# touch $dnm/scr/rsync_every_{{interval}}_seconds
+# cd $SGE_O_TEMPDIR
+cd $dnm
 #======================================#
 #|  Grab restart files from last job  |#
 #======================================#
 if (( chunk != 0 )) ; then
     last_chunk=$(( chunk - 1 ))
     last_dnm=$(printf "chunk_%04i" $last_chunk)
-    cp $working/$last_dnm/scr/restart.md .
-    cp $working/$last_dnm/scr/restart.mdRnd .
+    ln -s ../$last_dnm/scr/restart.md
+    ln -s ../$last_dnm/scr/restart.mdRnd
+    # cp $working/$last_dnm/scr/restart.md .
+    # cp $working/$last_dnm/scr/restart.mdRnd .
     # Space-saving measures
-    rm $working/$last_dnm/scr/restart.md.*
-    rm $working/$last_dnm/restart.md*
-    bzip2 $working/$last_dnm/scr/vel.log
+    # rm $working/$last_dnm/scr/restart.md.*
+    # rm $working/$last_dnm/restart.md*
+    # bzip2 $working/$last_dnm/scr/vel.log
+else
+    if [ -f guess.in ] ; then
+        terachem guess.in > guess.out 2> guess.err
+        ln -s scr/c*0 .
+    fi
 fi
-rsync_fork &
+# rsync_fork &
 #======================================#
 #|    Now do what needs to be done!   |#
 #======================================#
-terachem run.in > $working/$dnm/run.out 2> $working/$dnm/run.err
-rsync -auvz $SGE_O_TEMPDIR/scr/ $SGE_O_WORKDIR/scr/
+terachem run.in > run.out 2> run.err
+# If the job finishes or crashes for some reason, then the next job should be deleted.
+submitted_job=$(tail -1 submit.txt | awk '{{print $NF}}')
+scancel $submitted_job
+
+# rsync -auvz $SGE_O_TEMPDIR/scr/ $SGE_O_WORKDIR/scr/
 """
 
-with open('qsub.sh','w') as f: print >> f, fout.format(jobname=jobname, cwd=cwd, dnm=dnm, hold=hold, scriptname=__file__, hrt=hrt, interval=interval, queue=queue, gpus=args.gpus, gpucc=args.gpucc, long="--long" if args.long else "", fixed="# -fin fixed_atoms\n" if fixedatoms else "", surface="# -fin surface.xyz\n" if surface_on else "")
-os.system('qsub qsub.sh')
+terapath=os.path.dirname(os.path.dirname(args.tera))
+
+print(cwd)
+with open('sbatch.sh','w') as f: print(fout.format(jobname=jobname, cwd=cwd, hold=hold, scriptname=__file__, time=args.time, gpus=args.gpus, mem=args.gpus*8000, terapath=terapath, tera=args.tera), file=f)
+os.system('sbatch sbatch.sh | tee .submit.txt')
