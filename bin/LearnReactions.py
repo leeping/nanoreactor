@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+from __future__ import print_function
 import os, sys, argparse
 from nanoreactor import Nanoreactor
 
@@ -51,9 +52,9 @@ add_argument(parser, '--plot', action='store_true', help='Save interatomic dista
 print("LearnReactions.py called with the following arguments:")
 print(' '.join(sys.argv))
 print("\n#=========================================#")
-print("  #       Reactive MD learning script       #")
-print("  #  Use the -h argument for detailed help  #")
-print("  #=========================================#\n")
+print("#       Reactive MD learning script       #")
+print("#  Use the -h argument for detailed help  #")
+print("#=========================================#\n")
 args = parser.parse_args()
     
 def main():
