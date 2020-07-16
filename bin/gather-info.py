@@ -1,5 +1,6 @@
-#!/usr/bin/env python
+#!/home/hpark21/miniconda3/envs/python2/bin/python
 
+from __future__ import print_function
 import os, sys, math, re
 import numpy as np
 from itertools import islice
@@ -125,11 +126,11 @@ class Chunk(object):
                     else:
                         latest_frame['recover'] = latest_frame.get('recover', 0)
                     monitor_action = True
-        self.fseq = self.frames.keys()
-        if self.havedata and (self.fseq != range(self.fseq[0], self.fseq[-1]+1)):
+        self.fseq = list(self.frames.keys())
+        if self.havedata and (self.fseq != list(range(self.fseq[0], self.fseq[-1]+1))):
             raise RuntimeError("Sequence of frames is not contiguous")
-        for fnum in self.frames.keys():
-            self.frames[fnum] = OrderedDict(self.frames[fnum].items() + self.cumul[fnum].items())
+        for fnum in list(self.frames.keys()):
+            self.frames[fnum] = OrderedDict(list(self.frames[fnum].items()) + list(self.cumul[fnum].items()))
 
     def __repr__(self):
         return "MD Chunk: frames %i -> %i" % (self.fseq[0], self.fseq[-1])
@@ -155,7 +156,7 @@ class Chunk(object):
             obo = open(os.path.join("gathered", "bond_order.list"), mode=mode)
         if start == -1: start = self.fseq[0]
         if end == -1: end = self.fseq[-1]+1
-        fkeep = range(start, end)
+        fkeep = list(range(start, end))
         while True:
             if len(fkeep) == 0: break
             xyzframe = list(islice(fxyz, self.na+2))
@@ -182,7 +183,7 @@ class Chunk(object):
                     popframe.append("%-5s % 11.6f % 11.6f 0\n" % (self.elem[i],chg[i],spn[i]))
                 opop.writelines(popframe)
                 if have_bo: obo.writelines(boframe)
-                print "\rWriting frame %i      " % fnum,
+                print("\rWriting frame %i      " % fnum, end=' ')
             if fnum == fkeep[-1]: break
         fxyz.close()
         oxyz.close()
@@ -195,7 +196,7 @@ def bo_frame_change(traj_length):
     if not os.path.exists(fbo): return
     boSparse_sorted = load_bondorder(fbo, 0.1, traj_length)
     dm_all = None
-    for k, v in boSparse_sorted.items():
+    for k, v in list(boSparse_sorted.items()):
         amask = np.ma.array(v, mask=(v==0.0))
         am_fut = amask[1:]
         am_now = amask[:-1]
@@ -225,20 +226,20 @@ def main():
         chunk = Chunk("chunk_%04i" % cnum)
         if not chunk.havedata: break
         chunks.append(chunk)
-        print chunk
+        print(chunk)
         cnum += 1
-    print "Writing concatenated trajectory ..."
+    print("Writing concatenated trajectory ...")
     last_chunk_mode = 'w'
     for i in range(len(chunks)-1):
         framedata += chunks[i].writexyz(start=chunks[i].fseq[0], end=chunks[i+1].fseq[0], mode='w' if i == 0 else 'a')
         last_chunk_mode = 'a'
     framedata += chunks[-1].writexyz(mode=last_chunk_mode)
-    fdata_arr = np.array([[]+d.values() for d in framedata])
+    fdata_arr = np.array([[]+list(d.values()) for d in framedata])
     for i, d in enumerate(framedata):
-        if i > 0 and keys != d.keys():
-            print keys, d.keys()
+        if i > 0 and keys != list(d.keys()):
+            print(keys, list(d.keys()))
             raise RuntimeError("Dictionary keys do not match for frames %i and %i" % (i-1, i))
-        keys = d.keys()
+        keys = list(d.keys())
 
     # Remove irrelevant data arrays that are all zero
     keep = []
@@ -250,8 +251,8 @@ def main():
 
     bo_change = True
     if os.path.exists(os.path.join("gathered", "bond_order.list")) and bo_change:
-        print
-        print "Computing per-frame bond order changes ..."
+        print()
+        print("Computing per-frame bond order changes ...")
         maxVal, maxPair1, maxPair2 = bo_frame_change(fdata_arr.shape[0])
         fdata_arr = np.hstack((fdata_arr, maxVal.reshape(-1, 1), maxPair1.reshape(-1, 1), maxPair2.reshape(-1, 1)))
         keys += ['bo_maxd', 'bo_a1', 'bo_a2']
@@ -295,6 +296,8 @@ def main():
     header = ' '.join(header)
     keyOrder = np.array(keyOrder)
     np.savetxt(os.path.join("gathered", "properties.txt"), fdata_arr[:, keyOrder], fmt=fmt, header=header)
+    print ("Information gathering process is completed. You can now run \"LearnReactions.py trajectory.xyz\" in the \\gathered directory")
+
 
 if __name__ == "__main__":
     main()

@@ -5,6 +5,7 @@ VERSION=4.2
 __author__ = "Lee-Ping Wang, Alexey Titov, Robert McGibbon"
 __version__ = "%.1f"%VERSION
 
+from __future__ import print_function
 import os, sys
 from distutils.core import setup,Extension
 import numpy
@@ -47,10 +48,10 @@ def buildKeywordDictionary():
     outputString=""
     firstTab     = 40
     secondTab    = 60
-    for key in sorted( setupKeywords.iterkeys() ):
+    for key in sorted( setupKeywords.keys() ):
          value         = setupKeywords[key]
          outputString += key.rjust(firstTab) + str( value ).rjust(secondTab) + "\n"
-    print "%s" % outputString
+    print("%s" % outputString)
     return setupKeywords
     
 
@@ -61,8 +62,8 @@ def main():
       try:
           exec('import %s' % requirement)
       except ImportError as e:
-          print >> sys.stderr, '\nWarning: Could not import %s' % e
-          print >> sys.stderr, 'Warning: Some package functionality may not work'
+          print('\nWarning: Could not import %s' % e, file=sys.stderr)
+          print('Warning: Some package functionality may not work', file=sys.stderr)
 
 if __name__ == '__main__':
     main()
