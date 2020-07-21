@@ -371,7 +371,7 @@ echo $next_chunk > .chunk
 #|        Submit the next job         |#
 #======================================#
 if (( chunk < 200 )) ; then
-    qtcmd.py --auto --hold $SLURM_JOB_ID --gpus {gpus} --name "{jobname}" --time {time} --tera {tera}
+    python {scriptname} --auto --hold $SLURM_JOB_ID --gpus {gpus} --name "{jobname}" --time {time} --tera {tera}
 fi
 #======================================#
 #|  Go into the temporary directory   |#
@@ -408,7 +408,8 @@ fi
 #======================================#
 terachem run.in > run.out 2> run.err
 # If the job finishes or crashes for some reason, then the next job should be deleted.
-submitted_job=$(tail -1 submit.txt | awk '{{print $NF}}')
+next_dnm=$(printf "chunk_%04i" $next_chunk)
+submitted_job=$(tail -1 ../$next_dnm/.submit.txt | awk '{{print $NF}}')
 scancel $submitted_job
 
 # rsync -auvz $SGE_O_TEMPDIR/scr/ $SGE_O_WORKDIR/scr/
