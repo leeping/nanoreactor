@@ -1,10 +1,10 @@
 """ Calculate the pairwise Morse potential between all pairs of atoms in a frame.  Used as an energy function to prevent atom clashes. """
-
+from __future__ import print_function
 import os, sys
 import itertools
 import numpy as np
 from collections import namedtuple, OrderedDict 
-from molecule import Molecule
+from .molecule import Molecule
 
 ## The periodic table with atomic masses
 AtomicMass = OrderedDict([('H', 1.0079), ('He', 4.0026), 
@@ -23,7 +23,7 @@ AtomicMass = OrderedDict([('H', 1.0079), ('He', 4.0026),
                           ('Lr', 262), ('Rf', 261), ('Db', 262), ('Sg', 266), ('Bh', 264), ('Hs', 277), ('Mt', 268)])
 
 ## A list of the elements.
-Elements = AtomicMass.keys()
+Elements = list(AtomicMass.keys())
 
 ## Covalent radii from Cordero et al. 'Covalent radii revisited' Dalton Transactions 2008, 2832-2838.
 CovalentRadii = OrderedDict([(j, [0.31, 0.28,
@@ -391,7 +391,7 @@ def PairwiseMorse(M, dzero=True, repulsive=False):
         else:
             Energies.append(np.sum(D*((1.0-mexp)**2 - 1.0)))
         Gradients.append(Gradient)
-    print Energies
+    print(Energies)
     return Energies, Gradients
 
 def PairwiseMorse2(M):

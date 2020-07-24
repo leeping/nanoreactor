@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-
+from __future__ import print_function
 from nanoreactor import Nanoreactor
 from nanoreactor.molecule import *
 from nanoreactor import contact
@@ -62,7 +62,7 @@ M = Molecule(sys.argv[1])
 first = int(len(M) * 0.1)
 last = int(len(M) * 0.9)
 if last - first <= 100:
-    frames = range(first, last)
+    frames = list(range(first, last))
 else:
     frames = [int(i) for i in np.linspace(first, last, 100)]
 
@@ -72,14 +72,14 @@ os.chdir("uff_temp")
 Eopt = []
 Tops = []
 Mopt = None
-with open("define.in","w") as d: print >> d, definetxt
-print "Using Turbomole to optimize 100 geometries from frames:"
-print frames
+with open("define.in","w") as d: print(definetxt, file=d)
+print("Using Turbomole to optimize 100 geometries from frames:")
+print(frames)
 for fi, f in enumerate(frames):
     for t in tmpfiles:
         os.system("rm -rf %s" % t)
     if (fi+1) % 10 == 0:
-        print "Working on frame %i" % (fi+1)
+        print("Working on frame %i" % (fi+1))
     M.write("test.xyz",select=f)
     os.system("x2t test.xyz > test.coord")
     E = []
@@ -110,13 +110,13 @@ Mreact = Nanoreactor("opt_traj.xyz", enhance=1.2)
 os.chdir("..")
 TopSet = list(set(Tops))
 TopCount = np.array([Tops.count(Top) for Top in TopSet])
-print len(TopCount)
+print(len(TopCount))
 # Penalize uncommon and disconnected topologies
 Eopt = np.array(Eopt) + 1e10*(np.array(Mreact.NumMols)-1) + 1e6*(np.array(Tops) != TopSet[np.argmax(TopCount)])
-print "Energies:"
-print Eopt
-print "Minimum Energy:", min(Eopt)
-print "Geometry with Minimum Energy:", np.argmin(Eopt)
+print("Energies:")
+print(Eopt)
+print("Minimum Energy:", min(Eopt))
+print("Geometry with Minimum Energy:", np.argmin(Eopt))
 fout = os.path.splitext(sys.argv[1])[0]+"_uff.xyz"
 Mopt.write(fout,select=np.argmin(Eopt))
-print "Optimized geometry written to", fout
+print("Optimized geometry written to", fout)

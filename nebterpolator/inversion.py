@@ -6,6 +6,7 @@
 ##############################################################################
 
 # library imports
+from __future__ import print_function
 import numpy as np
 import sys
 from scipy.optimize import leastsq, fmin, fmin_l_bfgs_b
@@ -18,7 +19,7 @@ except:
     have_molecule = 0
 
 # local imports
-import core
+from . import core
 
 ##############################################################################
 # Globals
@@ -121,8 +122,8 @@ def least_squares_cartesian(bonds, ibonds, angles, iangles, dihedrals,
     verbose = kwargs.pop('verbose', False)
     xref = kwargs.pop('xref', None)
     w_xref = kwargs.pop('w_xref', 1.0)
-    for key in kwargs.keys():
-        print '%s is not a recognized kwarg. ignored' % key
+    for key in list(kwargs.keys()):
+        print('%s is not a recognized kwarg. ignored' % key)
 
     if xyz_guess.ndim != 2:
         raise ValueError('cartesian_guess should be a 2d array')
@@ -240,15 +241,15 @@ def least_squares_cartesian(bonds, ibonds, angles, iangles, dihedrals,
         
         if indicate: 
             if fgrad.X0 is not None:
-                print ("LSq: %.4f (%+.4f) Distance: %.4f (%+.4f) Angle: %.4f (%+.4f) Dihedral: %.4f (%+.4f)" % 
-                       (fgrad.X, fgrad.X - fgrad.X0, d1s, d1s - fgrad.d1s0, d2s, d2s - fgrad.d2s0, d3s, d3s - fgrad.d3s0)), 
-                if xrefi is not None: print "Anchor: %.4f (%+.4f)" % (d4s, d4s - fgrad.d4s0),
-                if w_morse != 0.0: print "Morse: %.4f (%+.4f)" % (d5s, (d5s - fgrad.d5s0)),
+                print(("LSq: %.4f (%+.4f) Distance: %.4f (%+.4f) Angle: %.4f (%+.4f) Dihedral: %.4f (%+.4f)" % 
+                       (fgrad.X, fgrad.X - fgrad.X0, d1s, d1s - fgrad.d1s0, d2s, d2s - fgrad.d2s0, d3s, d3s - fgrad.d3s0)), end=' ') 
+                if xrefi is not None: print("Anchor: %.4f (%+.4f)" % (d4s, d4s - fgrad.d4s0), end=' ')
+                if w_morse != 0.0: print("Morse: %.4f (%+.4f)" % (d5s, (d5s - fgrad.d5s0)), end=' ')
             else:
-                print "LSq: %.4f Distance: %.4f Angle: %.4f Dihedral: %.4f" % (fgrad.X, d1s, d2s, d3s), 
-                if xrefi is not None: print "Anchor: %.4f" % d4s,
-                if w_morse != 0.0: print "Morse: %.4f" % d5s,
-            print
+                print("LSq: %.4f Distance: %.4f Angle: %.4f Dihedral: %.4f" % (fgrad.X, d1s, d2s, d3s), end=' ') 
+                if xrefi is not None: print("Anchor: %.4f" % d4s, end=' ')
+                if w_morse != 0.0: print("Morse: %.4f" % d5s, end=' ')
+            print()
         if fgrad.X0 == None:
             fgrad.X0 = fgrad.X
             fgrad.d1s0 = d1s
@@ -345,8 +346,8 @@ def least_squares_cartesian(bonds, ibonds, angles, iangles, dihedrals,
         AGrad = grad(x0)
         for i in range(len(x0)):
             FDGrad = f1d7p(fdwrap(x0, i), h=0.0001)
-            print "%i % .4f % .4f % .4f" % (i, AGrad[i], FDGrad, FDGrad - AGrad[i])
-        raw_input()
+            print("%i % .4f % .4f % .4f" % (i, AGrad[i], FDGrad, FDGrad - AGrad[i]))
+        input()
     #====
     # End finite difference code
     #====
@@ -363,20 +364,20 @@ def least_squares_cartesian(bonds, ibonds, angles, iangles, dihedrals,
     else:
         xf, ff, d = fmin_l_bfgs_b(func, x0,fprime=grad,m=30,factr=1e10,pgtol=1e-4,iprint=-1,disp=0,maxfun=1e5,maxiter=1e5)
         nev = d['funcalls']
-    print "Cnvgd (fev=%2i) :" % nev, 
+    print("Cnvgd (fev=%2i) :" % nev, end=' ') 
     func(xf, indicate = True)
     if FDCheck:
         AGrad = grad(xf)
         FDGrad = np.array([f1d7p(fdwrap(xf, i), h=0.0001) for i in range(len(xf))])
-        print "Analytic Gradient (Final):", AGrad
-        print "Error in Gradient:", FDGrad - AGrad
-        raw_input()
+        print("Analytic Gradient (Final):", AGrad)
+        print("Error in Gradient:", FDGrad - AGrad)
+        input()
     xyz_final = independent_vars_to_xyz(xf)
     return xyz_final, ff
 
 
 def main():
-    from path_operations import union_connectivity
+    from .path_operations import union_connectivity
     #np.random.seed(42)
     xyzlist = 0.1*np.random.randn(7, 5, 3)
     atom_names = ['C' for i in range(5)]
@@ -391,7 +392,7 @@ def main():
     x = least_squares_cartesian(bonds[0], ibonds, angles[0], iangles,
                                 dihedrals[0], idihedrals, xyz_guess)
 
-    print x
+    print(x)
     #print xyzlist[0]
 
 if __name__ == '__main__':

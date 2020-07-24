@@ -1,37 +1,37 @@
 """
 setup.py: Install nanoreactor learning script.  
 """
+from __future__ import print_function
+
 VERSION=4.2
 __author__ = "Lee-Ping Wang, Alexey Titov, Robert McGibbon"
 __version__ = "%.1f"%VERSION
 
-from __future__ import print_function
 import os, sys
-from distutils.core import setup,Extension
+from distutils.core import setup
 import numpy
 import glob
 
 requirements = ['numpy', 'networkx']
 
 # Declare the C extension modules
-CONTACT = Extension('nanoreactor/_contact_wrap',
-                    sources = ["src/contact/contact.c",
-                               "src/contact/contact_wrap.c"],
-                    extra_compile_args=["-std=c99","-O3","-shared",
-                                        "-fopenmp", "-Wall"],
-                    extra_link_args=['-lgomp'],
-                    include_dirs = [numpy.get_include(), os.path.join(numpy.get_include(), 'numpy')])
-
-DIHEDRAL = Extension('nanoreactor/_dihedral_wrap',
-                    sources = ["src/dihedral/dihedral.c",
-                               "src/dihedral/dihedral_wrap.c"],
-                    extra_compile_args=["-std=c99","-O3","-shared",
-                                        "-fopenmp", "-Wall"],
-                    extra_link_args=['-lgomp'],
-                    include_dirs = [numpy.get_include(), os.path.join(numpy.get_include(), 'numpy')])
+#CONTACT = Extension('nanoreactor/_contact_wrap',
+#                    sources = ["src/contact/contact.c",
+#                               "src/contact/contact_wrap.c"],
+#                    extra_compile_args=["-std=c99","-O3","-shared",
+#                                        "-fopenmp", "-Wall"],
+#                    extra_link_args=['-lgomp'],
+#                    include_dirs = [numpy.get_include(), os.path.join(numpy.get_include(), 'numpy')])
+#
+#DIHEDRAL = Extension('nanoreactor/_dihedral_wrap',
+#                    sources = ["src/dihedral/dihedral.c",
+#                               "src/dihedral/dihedral_wrap.c"],
+#                    extra_compile_args=["-std=c99","-O3","-shared",
+#                                        "-fopenmp", "-Wall"],
+#                    extra_link_args=['-lgomp'],
+#                    include_dirs = [numpy.get_include(), os.path.join(numpy.get_include(), 'numpy')])
 
 def buildKeywordDictionary():
-    from distutils.core import Extension
     setupKeywords = {}
     setupKeywords["name"]              = "nanoreactor"
     setupKeywords["version"]           = "%.1f" %VERSION
@@ -41,7 +41,7 @@ def buildKeywordDictionary():
     setupKeywords["packages"]          = ["nanoreactor", "nebterpolator", "nebterpolator.io", "nebterpolator.core"]
     setupKeywords["package_dir"]       = {"nanoreactor": "src"}
     setupKeywords["scripts"]           = glob.glob("bin/*.py") + glob.glob("bin/*.sh") + glob.glob("bin/*.exe")
-    setupKeywords["ext_modules"]       = [CONTACT, DIHEDRAL]
+#    setupKeywords["ext_modules"]       = [CONTACT, DIHEDRAL]
     setupKeywords["py_modules"]       = ["pypackmol"]
     setupKeywords["platforms"]         = ["Linux", "Mac OS X", "Windows"]
     setupKeywords["description"]       = "Machine learning for reactive MD."

@@ -24,7 +24,7 @@ def get_indices(trajectory_or_conformation, angles='phi/psi'):
     Returns a N x 4 array
     '''
     
-    if isinstance(angles, basestring):
+    if isinstance(angles, str):
         angles = angles.lower()
         angles = angles.replace('/', ' ').replace('-', ' ').split()
     try:

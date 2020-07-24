@@ -4,7 +4,7 @@
 Run a Q-Chem geometry optimization.  Save frames where the energy is
 monotonically decreasing and save charges / spins to disk.
 """
-
+from __future__ import print_function
 from nanoreactor import contact
 from nanoreactor.nanoreactor import commadash
 from nanoreactor.qchem import QChem, tarexit
@@ -55,12 +55,12 @@ def main():
     bo_thresh = 0.2
     numbonds = 0
     bondfactor = 0.0
-    print "Atoms  QM-BO  Distance"
+    print("Atoms  QM-BO  Distance")
     for i in range(M.na):
         for j in range(i+1,M.na):
             # Print out the ones that are "almost" bonds.
             if M.qm_bondorder[i,j] > 0.1:
-                print "%s%i%s%s%i % .3f % .3f" % (M.elem[i], i, '-' if M.qm_bondorder[i,j] > bo_thresh else ' ', M.elem[j], j, M.qm_bondorder[i,j], np.linalg.norm(M.xyzs[-1][i]-M.xyzs[-1][j]))
+                print("%s%i%s%s%i % .3f % .3f" % (M.elem[i], i, '-' if M.qm_bondorder[i,j] > bo_thresh else ' ', M.elem[j], j, M.qm_bondorder[i,j], np.linalg.norm(M.xyzs[-1][i]-M.xyzs[-1][j])))
             if M.qm_bondorder[i,j] > bo_thresh:
                 M.bonds.append((i,j))
                 numbonds += 1
@@ -102,12 +102,12 @@ def main():
         nelectron = nproton + ichg
         # If calculation is valid, append to the list of xyz/chg/mult to be calculated.
         if (not chgpass or not spnpass):
-            print "Cannot determine charge and spin for fragment %s\n" % subg.ef()
+            print("Cannot determine charge and spin for fragment %s\n" % subg.ef())
             subchg.append(None)
             submult.append(None)
             subvalid.append(False)
         elif ((nelectron-ispn)/2)*2 != (nelectron-ispn):
-            print "Inconsistent charge and spin-z for fragment %s\n" % subg.ef()
+            print("Inconsistent charge and spin-z for fragment %s\n" % subg.ef())
             subchg.append(None)
             submult.append(None)
             subvalid.append(False)
@@ -115,9 +115,9 @@ def main():
             subchg.append(ichg)
             submult.append(ispn+1)
             subvalid.append(True)
-    print "%i/%i subcalculations are valid" % (len(subvalid), sum(subvalid))
+    print("%i/%i subcalculations are valid" % (len(subvalid), sum(subvalid)))
     for i in range(len(subxyz)):
-        print "%s formula %-12s charge %i mult %i %s" % (subxyz[i], subef[i], subchg[i], submult[i], "valid" if subvalid[i] else "invalid")
+        print("%s formula %-12s charge %i mult %i %s" % (subxyz[i], subef[i], subchg[i], submult[i], "valid" if subvalid[i] else "invalid"))
     fragid = open('fragmentid.txt', 'w')
     for formula in subef : fragid.write(formula+" ")
     fragid.write("\nBondfactor: " + str(bondfactor))

@@ -3,7 +3,7 @@
 #|     managing database of reactions      |#
 #|  Authors: Lee-Ping Wang, Leah Bendavid  |#
 #===========================================#
-
+from __future__ import print_function
 import os, sys, re, shutil, time
 import numpy as np
 import argparse
@@ -11,9 +11,9 @@ import traceback
 from copy import deepcopy
 from collections import Counter, OrderedDict
 import subprocess
-from molecule import Molecule, TopEqual, MolEqual, Elements, extract_int, arc, EqualSpacing
-from nifty import _exec, natural_sort, extract_tar
-from output import logger
+from .molecule import Molecule, TopEqual, MolEqual, Elements, extract_int, arc, EqualSpacing
+from .nifty import _exec, natural_sort, extract_tar
+from .output import logger
 # json is used for saving dictionaries to file.
 import json
 try:
@@ -191,9 +191,9 @@ def find_reacting_groups(m1, m2):
             logger.error("I expected an atom group with any spectators to be a single molecule")
             raise RuntimeError
         else:
-            strrxn = ' + '.join(['%s%s' % (str(j) if j>1 else '', i) for i, j in Counter([m.ef() for m in m1g.molecules]).items()])
+            strrxn = ' + '.join(['%s%s' % (str(j) if j>1 else '', i) for i, j in list(Counter([m.ef() for m in m1g.molecules]).items())])
             strrxn += ' -> '
-            strrxn += ' + '.join(['%s%s' % (str(j) if j>1 else '', i) for i, j in Counter([m.ef() for m in m2g.molecules]).items()])
+            strrxn += ' + '.join(['%s%s' % (str(j) if j>1 else '', i) for i, j in list(Counter([m.ef() for m in m2g.molecules]).items())])
             strrxns.append(strrxn)
             
         # Now we have a group of reacting atoms that we can extract from the
@@ -211,7 +211,7 @@ def find_reacting_groups(m1, m2):
         # If the sanity checks fail, then do not extract the spectator atoms
         # and simply return a list of all the atoms at the end.
         do_extract = True
-        if ((nelectron-spn)/2)*2 != (nelectron-spn):
+        if ((nelectron-spn)//2)*2 != (nelectron-spn):
             logger.info("\x1b[91mThe number of electrons (%i; charge %i) is inconsistent with the spin-z (%i)\x1b[0m" % (nelectron, chg, spn), printlvl=1)
             do_extract = False
             break
@@ -226,12 +226,12 @@ def find_reacting_groups(m1, m2):
         message = "Initial Reaction : " + ' ; '.join(strrxns)
         if n_spectator_atoms > 0:
             # I know it's supposed to be spelled 'spectator', but it's fun to say 'speculator' :)
-            message += " ; Speculators (removed) : \x1b[91m%s\x1b[0m" % (' + '.join(['%s%s' % (str(j) if j>1 else '', i) for i, j in Counter(spectator_formulas).items()]))
+            message += " ; Speculators (removed) : \x1b[91m%s\x1b[0m" % (' + '.join(['%s%s' % (str(j) if j>1 else '', i) for i, j in list(Counter(spectator_formulas).items())]))
         logger.info(message, printlvl=2)
-        return zip(extract_groups, extract_charges, extract_mults)
+        return list(zip(extract_groups, extract_charges, extract_mults))
     else:
         logger.info("Unable to split reaction pathway into groups")
-        return zip([np.arange(m1.na)], [m1.charge], [m1.mult])
+        return list(zip([np.arange(m1.na)], [m1.charge], [m1.mult]))
 
 def analyze_path(xyz, nrg, cwd, xyz0=None, label="Reaction", draw=2):
     """
@@ -354,14 +354,14 @@ def analyze_path(xyz, nrg, cwd, xyz0=None, label="Reaction", draw=2):
         if len(formulaP) == 0:
             logger.error('How can I have reactants but no products?')
             raise RuntimeError
-        strrxn = 'Reaction: ' + ' + '.join(['%s%s' % (str(j) if j>1 else '', i) for i, j in Counter(formulaR).items()])
+        strrxn = 'Reaction: ' + ' + '.join(['%s%s' % (str(j) if j>1 else '', i) for i, j in list(Counter(formulaR).items())])
         strrxn += ' -> '
-        strrxn += ' + '.join(['%s%s' % (str(j) if j>1 else '', i) for i, j in Counter(formulaP).items()])
+        strrxn += ' + '.join(['%s%s' % (str(j) if j>1 else '', i) for i, j in list(Counter(formulaP).items())])
     else:
         strrxn = 'Reaction: None'
     if len(formulaS) > 0:
         strrxn += ', Speculators: '
-        strrxn += ' '.join(['%s%s' % (str(j) if j>1 else '', i) for i, j in Counter(formulaS).items()])
+        strrxn += ' '.join(['%s%s' % (str(j) if j>1 else '', i) for i, j in list(Counter(formulaS).items())])
     if status == 'correct':
         color = '\x1b[1;92m'
     elif status == 'incorrect':
@@ -558,7 +558,7 @@ def make_task(cmd, cwd, inputs=[], outputs=[], tag=None, calc=None, verbose=0, p
         outputs = [outputs]
     # Actually print the command to the output folder. :)
     with open(os.path.join(cwd, 'command.sh'), 'w') as f:
-        print >> f, cmd
+        print(cmd, file=f)
     if WQ != None:
         # Create and submit Work Queue Task object.
         task = work_queue.Task(cmd)
@@ -635,7 +635,7 @@ class Calculation(object):
         # write the location of this file to source.txt.
         if isinstance(initial, str) and self.home not in os.path.abspath(initial):
             with open(os.path.join(self.home, 'source.txt'), 'w') as f:
-                print >> f, os.path.abspath(initial)
+                print(os.path.abspath(initial), file=f)
         # Calculations have the ability to access their parent.
         self.parent = kwargs.pop('parent', None)
         # Set charge and multiplicity.
@@ -746,7 +746,7 @@ class Calculation(object):
         if self.read_only: to_disk = False
         if to_disk:
             with open(statpath, 'w') as f:
-                print >> f, statout
+                print(statout, file=f)
         # Print status to the terminal.
         if display:
             self.printStatus(ansi=ansi)
@@ -1291,7 +1291,7 @@ class GrowingString(Calculation):
         """
         # At least one transition state converged to an IRC consistent with the reactant and product.
         # If so, there is no reason to continue the growing string calculation.
-        if any([calc.status == 'correct' for calc in self.TransitionStates.values()]):
+        if any([calc.status == 'correct' for calc in list(self.TransitionStates.values())]):
             self.saveStatus('correct', message='Correct transition state found')
             self.parent.saveStatus('complete', message='Correct transition state found')
             return
@@ -1405,13 +1405,13 @@ class Pathway(Calculation):
     calctype = "Pathway"
 
     def countFragmentIDs(self):
-        return sum([calc.status == 'converged' for calc in self.FragmentIDs.values()]), len(self.FragmentIDs.values())
+        return sum([calc.status == 'converged' for calc in list(self.FragmentIDs.values())]), len(list(self.FragmentIDs.values()))
 
     def countFragmentOpts(self):
-        return sum([calc.status == 'converged' for calc in self.FragmentOpts.values()]), len(self.FragmentOpts.values())
+        return sum([calc.status == 'converged' for calc in list(self.FragmentOpts.values())]), len(list(self.FragmentOpts.values()))
 
     def countOptimizations(self):
-        return sum([calc.status == 'converged' for calc in self.Optimizations.values()]), len(self.Optimizations.values())
+        return sum([calc.status == 'converged' for calc in list(self.Optimizations.values())]), len(list(self.Optimizations.values()))
 
     def launch_(self):
         """
@@ -1437,12 +1437,12 @@ class Pathway(Calculation):
                 self.Optimizations = OrderedDict()
                 self.Optimizations[0] = Optimization(initial=self.M0[0], home=os.path.join(self.home, "opt-init"), parent=self, priority=self.priority+1000, **self.kwargs)
                 self.Optimizations[1] = Optimization(initial=self.M0[-1], home=os.path.join(self.home, "opt-final"), parent=self, priority=self.priority+1000, **self.kwargs)
-                for calc in self.Optimizations.values(): 
+                for calc in list(self.Optimizations.values()): 
                     calc.launch()
                 return
-            if (len(self.Optimizations) == 2) and all([calc.status == 'converged' for calc in self.Optimizations.values()]):
+            if (len(self.Optimizations) == 2) and all([calc.status == 'converged' for calc in list(self.Optimizations.values())]):
                 OptMols = OrderedDict()
-                for frm, calc in self.Optimizations.items():
+                for frm, calc in list(self.Optimizations.items()):
                     OptMols[frm] = Molecule(os.path.join(calc.home, 'optimize.xyz'), topframe=-1)
                     OptMols[frm].load_popxyz(os.path.join(calc.home, 'optimize.pop'))
                 # Catch the *specific case* that after reoptimizing the 
@@ -1459,7 +1459,7 @@ class Pathway(Calculation):
                 Joined.write(os.path.join(self.home, 'rejoined.xyz'))
                 Spaced.write(os.path.join(self.home, 'respaced.xyz'))
                 self.M1 = Spaced
-            elif (len(self.Optimizations) == 2) and any([calc.status == 'failed' for calc in self.Optimizations.values()]):
+            elif (len(self.Optimizations) == 2) and any([calc.status == 'failed' for calc in list(self.Optimizations.values())]):
                 self.saveStatus('failed', message='At least one endpoint optimization has failed')
                 return
             else:
@@ -1556,7 +1556,7 @@ class Trajectory(Calculation):
     def makeFragments(self):
         """ Create and launch fragment identifications. This code is called ONCE per trajectory"""
         self.FragmentIDs = OrderedDict()
-        self.frames = range(0, len(self.M), self.subsample)
+        self.frames = list(range(0, len(self.M), self.subsample))
         if (len(self.M)-1) not in self.frames:
             self.frames.append(len(self.M)-1)
         for frm in self.frames:
@@ -1583,12 +1583,12 @@ class Trajectory(Calculation):
             if validity != "invalid": 
                 FragIDs[frm]=(formulas, bondfactor)
         # Sort by bondfactor in descending order
-        FragIDs = OrderedDict(sorted(FragIDs.items(), key=lambda item: item[1][1], reverse = True))
+        FragIDs = OrderedDict(sorted(list(FragIDs.items()), key=lambda item: item[1][1], reverse = True))
         # Pick out frame with maximum bondfactor for fragment group
         self.optlist = []
         fraglist = []
         logger.info("Identifying frames for unique fragment sets with maximum bonding:")
-        for frm,frag in FragIDs.items():
+        for frm,frag in list(FragIDs.items()):
             if frag[0] not in fraglist:
                 logger.info("Frame: %d; Fragments: %s" % (frm, frag[0]))
                 self.optlist.append(frm)
@@ -1639,9 +1639,9 @@ class Trajectory(Calculation):
                     Gfj = Efj - entr[fj]*0.29815 + enth[fj]
                     DeltaE = Efj - Efi
                     self.DeltaG = Gfj - Gfi
-                    strrxn = ' + '.join(['%s%s' % (str(j) if j>1 else '', i) for i, j in Counter(formulas[fi].split()).items()])
+                    strrxn = ' + '.join(['%s%s' % (str(j) if j>1 else '', i) for i, j in list(Counter(formulas[fi].split()).items())])
                     strrxn += ' -> '
-                    strrxn += ' + '.join(['%s%s' % (str(j) if j>1 else '', i) for i, j in Counter(formulas[fj].split()).items()])
+                    strrxn += ' + '.join(['%s%s' % (str(j) if j>1 else '', i) for i, j in list(Counter(formulas[fj].split()).items())])
                     logger.info("=> Frame %s -> %s: Reaction %s; Delta-H (0K) = %.4f kcal/mol; Delta-G (STP) = %.4f kcal/mol" 
                                 % (fi, fj, strrxn, DeltaE, self.DeltaG))
 
@@ -1651,7 +1651,7 @@ class Trajectory(Calculation):
         # Create molecule object and set charge / multiplicity.
         # Create a list of frames separated by the stride and 
         # including the last frame.
-        self.frames = range(0, len(self.M), self.subsample)
+        self.frames = list(range(0, len(self.M), self.subsample))
         if (len(self.M)-1) not in self.frames:
             self.frames.append(len(self.M)-1)
         for frm in self.frames:
@@ -1710,21 +1710,21 @@ class Trajectory(Calculation):
             def ascii_encode_dict(data):
                 """ Convert Unicode strings in dictionary (e.g. JSON-loaded) to ascii. """
                 def ascii_encode(x):
-                    if isinstance(x, unicode):
+                    if isinstance(x, str):
                         return x.encode('ascii')
                     else:
                         return x
-                return OrderedDict(map(ascii_encode, pair) for pair in data.items())
+                return OrderedDict(list(map(ascii_encode, pair)) for pair in list(data.items()))
             ok = True
             PathInfo = json.load(open(os.path.join(self.pathwayFolder, 'path-info.txt')), object_hook=ascii_encode_dict)
-            for label, pathparams in PathInfo.items():
+            for label, pathparams in list(PathInfo.items()):
                 if not os.path.exists(os.path.join(pathparams['home'], 'spaced.xyz')):
                     ok = False
                     break
                 self.Pathways[label] = Pathway(os.path.join(pathparams['home'], 'spaced.xyz'), home=pathparams['home'], name=pathparams['name'], 
                                                charge=pathparams['charge'], mult=pathparams['mult'], parent=self, priority=self.priority, **self.kwargs)
             if ok:
-                for P in self.Pathways.values():
+                for P in list(self.Pathways.values()):
                     P.launch()
                 return
         # If the cached path information doesn't exist or something went wrong, then we determine all of the pathways.
@@ -1733,7 +1733,7 @@ class Trajectory(Calculation):
         # Create a Molecule object for each optimized .xyz file.
         # Note that topology is determined by the final frame
         OptMols = OrderedDict()
-        for frm, calc in self.Optimizations.items():
+        for frm, calc in list(self.Optimizations.items()):
             if calc.status == 'failed': continue
             OptMols[frm] = Molecule(os.path.join(calc.home, 'optimize.xyz'), topframe=-1)
             OptMols[frm].load_popxyz(os.path.join(calc.home, 'optimize.pop'))
@@ -1746,7 +1746,7 @@ class Trajectory(Calculation):
         # Each final pathway frame is the initial frame of a given catchment basin, starting from the 2nd one
         path_initial = []
         path_final = []
-        for fi, fj in zip(OptMols.keys()[:-1], OptMols.keys()[1:]):
+        for fi, fj in zip(list(OptMols.keys())[:-1], list(OptMols.keys())[1:]):
             if not self.Equal(OptMols[fi], OptMols[fj]):
                 # fi and fj mark the boundaries of a difference in catchment basin
                 path_initial.append(fi)
@@ -1794,7 +1794,7 @@ class Trajectory(Calculation):
             # Identify the atoms that reacted (i.e. remove spectators)
             # There is sometimes more than one reacting group if multiple concurrent reactions occur
             if self.spectators:
-                reacting_groups = [(range(OptMols[fi][-1].na), self.charge, self.mult)]
+                reacting_groups = [(list(range(OptMols[fi][-1].na)), self.charge, self.mult)]
             else:
                 reacting_groups = find_reacting_groups(OptMols[fi][-1], OptMols[fj][-1])
             for rgrp, (ratoms, rcharge, rmult) in enumerate(reacting_groups):
@@ -1816,20 +1816,20 @@ class Trajectory(Calculation):
                 self.Pathways[label].launch()
                 PathInfo[label] = OrderedDict([('home', pathhome), ('name', pathname), ('charge', rcharge), ('mult', rmult)])
         with open(os.path.join(self.pathwayFolder, 'path-info.txt'), 'w') as f: json.dump(PathInfo, f, ensure_ascii=True)
-        if len(self.Pathways.keys()) == 0:
+        if len(list(self.Pathways.keys())) == 0:
             logger.info("%s has no pathways after optimizations" % self.name, printlvl=2)
             self.saveStatus('complete', message='no pathways')
         # LPW Attempt to save some memory
         del OptMols
 
     def countFragmentIDs(self):
-        return sum([calc.status == 'converged' for calc in self.FragmentIDs.values()]), len(self.frames)
+        return sum([calc.status == 'converged' for calc in list(self.FragmentIDs.values())]), len(self.frames)
 
     def countFragmentOpts(self):
-        return sum([calc.status == 'converged' for calc in self.FragmentOpts.values()]), len(self.optlist)
+        return sum([calc.status == 'converged' for calc in list(self.FragmentOpts.values())]), len(self.optlist)
     
     def countOptimizations(self):
-        return sum([calc.status == 'converged' for calc in self.Optimizations.values()]), len(self.frames)
+        return sum([calc.status == 'converged' for calc in list(self.Optimizations.values())]), len(self.frames)
 
     def launchOptimizations(self):
         # Create geometry optimizations if we haven't done so already.
@@ -1840,12 +1840,12 @@ class Trajectory(Calculation):
         # created, this method will no longer be called so we don't
         # need to cycle through again.
         else:
-            for calc in self.Optimizations.values():
+            for calc in list(self.Optimizations.values()):
                 if os.path.exists(os.path.join(calc.home, 'optimize.xyz')):
                     complete, total = self.countOptimizations()
                     calc.saveStatus('converged', display=(self.verbose>=2), to_disk=False, message='%i/%i complete' % (complete+1, total))
     
-        if (len(self.Optimizations) == len(self.frames)) and all([calc.status in ['converged', 'failed'] for calc in self.Optimizations.values()]):
+        if (len(self.Optimizations) == len(self.frames)) and all([calc.status in ['converged', 'failed'] for calc in list(self.Optimizations.values())]):
             if not hasattr(self, 'Pathways'):
                 self.makePathways()
 
@@ -1880,22 +1880,22 @@ class Trajectory(Calculation):
             if not hasattr(self, 'FragmentIDs'):
                 self.makeFragments()
             else:
-                for calc in self.FragmentIDs.values():
+                for calc in list(self.FragmentIDs.values()):
                     if os.path.exists(os.path.join(calc.home, 'fragmentid.txt')):
                         complete, total = self.countFragmentIDs()
                         calc.saveStatus('converged', display=(self.verbose>=2), to_disk=False, message='%i/%i complete' % (complete+1, total))
             # Optimize fragments if we haven't done so already
-            if (len(self.FragmentIDs) == len(self.frames)) and all([calc.status in ['converged', 'failed'] for calc in self.FragmentIDs.values()]):
+            if (len(self.FragmentIDs) == len(self.frames)) and all([calc.status in ['converged', 'failed'] for calc in list(self.FragmentIDs.values())]):
                 if not hasattr(self, 'FragmentOpts'):
                     self.makeFragOpts()
                 else:
-                    for calc in self.FragmentOpts.values():
+                    for calc in list(self.FragmentOpts.values()):
                         if os.path.exists(os.path.join(calc.home, 'fragmentopt.txt')):
                             complete, total = self.countFragmentOpts()
                             calc.saveStatus('converged', display=(self.verbose>=2), to_disk=False, message='%i/%i complete' % (complete+1, total))
     
-            if (len(self.FragmentIDs) == len(self.frames)) and all([calc.status in ['converged', 'failed'] for calc in self.FragmentIDs.values()]):
-                if (len(self.FragmentOpts) == len(self.optlist)) and all([calc.status in ['converged', 'failed'] for calc in self.FragmentOpts.values()]):        
+            if (len(self.FragmentIDs) == len(self.frames)) and all([calc.status in ['converged', 'failed'] for calc in list(self.FragmentIDs.values())]):
+                if (len(self.FragmentOpts) == len(self.optlist)) and all([calc.status in ['converged', 'failed'] for calc in list(self.FragmentOpts.values())]):        
                     # Calculate Delta-G's of the reaction from fragments if we haven't done so already
                     if not hasattr(self, 'DeltaG'):
                         self.calcDeltaGs()

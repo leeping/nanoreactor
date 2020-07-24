@@ -12,7 +12,7 @@
 # 3.0 - 1/5/2016
 # now uses modules
 
-
+from __future__ import print_function
 import csv
 import numpy as np
 import argparse
@@ -69,7 +69,7 @@ args = parser.parse_args()
 # check to make sure that coordinate file is .xyz
 if args.coordinate_filename:
 	if (args.coordinate_filename[-4]+args.coordinate_filename[-3]+args.coordinate_filename[-2]+args.coordinate_filename[-1] != ".xyz"):
-		print "The coordinate file type must be .xyz"
+		print("The coordinate file type must be .xyz")
 		sys.exit(1)
 
 # set inner volume ratio
@@ -150,7 +150,7 @@ level_shift_valb_input = '0.1'
 
 if args.level_shift_vala_input:
 	if level_shift_input == 'no':
-		print "levelshiftvala was provided when levelshift = no"
+		print("levelshiftvala was provided when levelshift = no")
 		sys.exit(2)
 	else:
 		level_shift_vala_input = args.level_shift_vala_input
@@ -158,7 +158,7 @@ if args.level_shift_vala_input:
 
 if args.level_shift_valb_input:
 	if level_shift_input == 'no':
-		print "levelshiftvalb was provided when levelshift = no"
+		print("levelshiftvalb was provided when levelshift = no")
 		sys.exit(3)
 	else:
 		level_shift_valb_input = args.level_shift_valb_input
@@ -280,7 +280,7 @@ if args.queue_system == 'sge':
 elif args.queue_system == 'slurm':
 	queue_system = 'slurm'
 else:
-	print "queue system must be sge or slurm"	
+	print("queue system must be sge or slurm")	
 	sys.exit(4)
 
 # set memory
@@ -307,9 +307,9 @@ if args.coordinate_filename:
     min_inner_radius = ipg.findminradius(args.coordinate_filename)
     inner_radius = ipg.findinnerradius(min_inner_radius, inner_volume_ratio)
     outer_radius = ipg.findouterradius(inner_radius,outer_volume_ratio)
-    print "Recommended inner radius is " + str(inner_radius)
-    print "Minimum inner radius is " + str(min_inner_radius)
-    print "Recommended outer radius is " + str(outer_radius)
+    print("Recommended inner radius is " + str(inner_radius))
+    print("Minimum inner radius is " + str(min_inner_radius))
+    print("Recommended outer radius is " + str(outer_radius))
 
 # need to generate mdr2list and mdk2list based on count given by user at command line
 
@@ -359,10 +359,10 @@ for mdr2 in mdr2list:
 
 log_file.close()
 
-print "Generated " + str(file_index) + " input and run files in " + args.output_folder
+print("Generated " + str(file_index) + " input and run files in " + args.output_folder)
 
 if args.submit_run:
-	print "Submitted " + str(file_index) + " jobs"
+	print("Submitted " + str(file_index) + " jobs")
 
 
 

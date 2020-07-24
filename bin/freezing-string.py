@@ -15,7 +15,7 @@ Freezing string results are saved to file as stringfile.txt and Vfile.txt (Q-Che
 IRC results are saved to file as irc.xyz (coordinates), irc.pop (charge and spin populations), 
 irc.nrg (arc length vs. energy) and irc_spaced.xyz (equally spaced coordinates).
 """
-
+from __future__ import print_function
 from nanoreactor.molecule import Molecule, arc
 from nanoreactor.qchem import QChem, QChemTS, QChemIRC, SpaceIRC, tarexit
 from nanoreactor.nifty import _exec
@@ -53,7 +53,7 @@ def main():
     # The initial path determines whether the IRC should be forwards or backwards.
     S = Molecule(args.initial)
     # Optimize reactant and product geometries, and write them to an input file for freezing string.
-    print "Optimizing endpoints..."
+    print("Optimizing endpoints...")
     S[0].write("strrct.xyz")
     QcRct = QChem("strrct.xyz", charge=args.charge, mult=args.mult, method=args.methods[0], basis=args.bases[0], qcin="qcopt_rct.in")
     QcRct.opt()
@@ -64,7 +64,7 @@ def main():
     RP.write("strrp.xyz")
     # Create the freezing string calculation, and calculate the transition state.
     QCFS = QChem("strrp.xyz", charge=args.charge, mult=args.mult, method=args.methods[0], basis=args.bases[0], qcin="qcfsm.in")
-    print "Freezing string.."; QCFS.fsm()
+    print("Freezing string.."); QCFS.fsm()
     QCFS.M.write('strts.xyz')
 
     # Perform transition state search.
@@ -73,7 +73,7 @@ def main():
                     basis=args.bases[0], finalize=(len(args.methods)==1), qcin='qcts1.in', vout='irc_transition.vib')
     QCTS1.write('ts1.xyz')
     if len(args.methods) == 2:
-        print ' --== \x1b[1;92mUpgrading\x1b[0m ==--'
+        print(' --== \x1b[1;92mUpgrading\x1b[0m ==--')
         QCTS2 = QChemTS("ts1.xyz", charge=args.charge, mult=args.mult, method=args.methods[1], 
                         basis=args.bases[1], finalize=True, qcin='qcts2.in', vout='irc_transition.vib')
         QCTS2.write('ts2.xyz')
@@ -83,7 +83,7 @@ def main():
         qcdir = QCTS1.qcdir
         shutil.copy2('ts1.xyz', 'ts.xyz')
     # Intrinsic reaction coordinate calculation.
-    print "Intrinsic reaction coordinate.."
+    print("Intrinsic reaction coordinate..")
     # Process and save IRC results.
     M_IRC, E_IRC = QChemIRC("ts.xyz", charge=args.charge, mult=args.mult, method=args.methods[-1], basis=args.bases[-1], qcdir=qcdir, xyz0=args.initial)
     M_IRC.write("irc.xyz")
@@ -203,7 +203,7 @@ def main():
         nrgfile.write("=> Product state could not be identified among fragment calculations\n")
         nrgfile.write("=> No reaction energies referenced to isolated molecules will be calculated for this pathway\n")
     nrgfile.close()
-    print "\x1b[1;92mIRC Success!\x1b[0m"
+    print("\x1b[1;92mIRC Success!\x1b[0m")
     tarexit()
 
 if __name__ == "__main__":
