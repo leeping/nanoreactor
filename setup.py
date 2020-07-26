@@ -8,7 +8,7 @@ __author__ = "Lee-Ping Wang, Alexey Titov, Robert McGibbon"
 __version__ = "%.1f"%VERSION
 
 import os, sys
-from distutils.core import setup
+from distutils.core import setup#, Extension
 import numpy
 import glob
 
@@ -30,7 +30,7 @@ requirements = ['numpy', 'networkx']
 #                                        "-fopenmp", "-Wall"],
 #                    extra_link_args=['-lgomp'],
 #                    include_dirs = [numpy.get_include(), os.path.join(numpy.get_include(), 'numpy')])
-
+#
 def buildKeywordDictionary():
     setupKeywords = {}
     setupKeywords["name"]              = "nanoreactor"
