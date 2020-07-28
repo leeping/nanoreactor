@@ -32,7 +32,7 @@ def create_work_queue(port):
     if work_queue == None:
         logger.error("Cannot create Work Queue because work_queue module not found")
         raise RuntimeError
-    WQ = work_queue.WorkQueue(port=port, exclusive=False, shutdown=False)
+    WQ = work_queue.WorkQueue(port=port, shutdown=False)
     WQ.specify_name('refine')
     WQ.specify_keepalive_interval(8640000)
     # Calculations submitted first get run first
