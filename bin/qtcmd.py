@@ -29,7 +29,7 @@
 #| The .chunk file should be 1 higher than the highest chunk_xxxx folder |#
 #|                                                                       |#
 #=========================================================================#
-
+from __future__ import print_function
 import os
 import re
 import argparse
@@ -48,12 +48,11 @@ parser.add_argument('--name', type=str, default='default', help='Specify the nam
 parser.add_argument('--tera', type=str, default='/home/leeping/opt/terachem/current/bin/terachem', help='Specify absolute path of TeraChem executable.')
 parser.add_argument('--hold', type=int, default=0, help='Specify the job number used to hold the submitted job (not necessary if submitting by hand).')
 
-print()
-print(" #=========================================#")
-print(" #     Nanoreactor MD launching script     #")
-print(" #  Use the -h argument for detailed help  #")
-print(" #=========================================#")
-print()
+print("\n#=========================================#")
+print("#     Nanoreactor MD launching script     #")
+print("#  Use the -h argument for detailed help  #")
+print("#=========================================#\n")
+
 args = parser.parse_args()
 
 def edit_tcin(fin=None, fout=None, options={}, defaults={}):

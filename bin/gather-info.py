@@ -349,6 +349,6 @@ def main():
     header = ' '.join(header)
     keyOrder = np.array(keyOrder)
     np.savetxt(os.path.join("gathered", "properties.txt"), fdata_arr[:, keyOrder], fmt=fmt, header=header)
-
+    print ("Information gathering process is completed. You can run \"LearnReactions.py trajectory.xyz\" in the ./gathered directory.")
 if __name__ == "__main__":
     main()

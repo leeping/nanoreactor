@@ -1,16 +1,18 @@
 #!/usr/bin/env python
-
+from __future__ import print_function
 import os, sys, re
 import networkx as nx
 import numpy as np
 import copy
 from collections import namedtuple, OrderedDict, defaultdict, Counter
-from chemistry import Elements, Radii
+from .chemistry import Elements, Radii
 from copy import deepcopy
-from molecule import AtomContact, BuildLatticeFromLengthsAngles, Molecule, format_xyz_coord
-import contact
+from .molecule import AtomContact, BuildLatticeFromLengthsAngles, Molecule, format_xyz_coord
+#from . import contact
 import itertools
 import time
+import shutil
+import fnmatch
 from pkg_resources import parse_version
 from scipy.signal import butter, freqz
 import matplotlib.pyplot as plt
@@ -38,9 +40,9 @@ def subscripts(string):
                         '3': 8323, '4': 8324, '5': 8325,
                         '6': 8326, '7': 8327, '8': 8328,
                         '9': 8329}
-    ustr = unicode(string)
+    ustr = str(string)
     for i in unicode_integers:
-        ustr = ustr.replace(i, unichr(unicode_integers[i]))
+        ustr = ustr.replace(i, chr(unicode_integers[i]))
     return ustr
 
 def nodematch(node1,node2):
@@ -120,24 +122,24 @@ def uncommadash(s):
             elif len(ws) == 2:
                 b = int(ws[1])
             else:
-                print "Dash-separated list cannot exceed length 2"
+                print("Dash-separated list cannot exceed length 2")
                 raise
             if a < 0 or b <= 0 or b <= a:
                 if a < 0 or b <= 0:
-                    print "Items in list cannot be zero or negative: %d %d" % (a, b)
+                    print("Items in list cannot be zero or negative: %d %d" % (a, b))
                 else:
-                    print "Second number cannot be smaller than first: %d %d" % (a, b)
+                    print("Second number cannot be smaller than first: %d %d" % (a, b))
                 raise
-            newL = range(a,b)
+            newL = list(range(a,b))
             if any([i in L for i in newL]):
-                print "Duplicate entries found in list"
+                print("Duplicate entries found in list")
                 raise
             L += newL
         if sorted(L) != L:
-            print "List is out of order"
+            print("List is out of order")
             raise
     except:
-        print "Invalid string for converting to list of numbers: %s" % s
+        print("Invalid string for converting to list of numbers: %s" % s)
         raise RuntimeError
     return L
 
@@ -335,7 +337,7 @@ def low_pass_smoothing(all_raw_time_series, sigma, dt_fs, reflect=True):
         doubled_series = np.hstack((all_raw_time_series, reflected))
         new_len = len(doubled_series[0]) # length of doubled end-to-end time series
         # list of elements that make up the reflected portion (to be used to remove the reflected portion later on)
-        removal_list = range(traj_length, new_len)
+        removal_list = list(range(traj_length, new_len))
         # create the frequency portion (for plotting)
         w, h = freqz(b, a, worN=new_len, whole=True)
         # fast fourier transform
@@ -434,7 +436,7 @@ def formulaSum(efList):
     count = Counter(efList)
     words = []
     for v in sorted(list(set(count.values())))[::-1]:
-        for k, v1 in count.items():
+        for k, v1 in list(count.items()):
             if v == v1:
                 if v == 1:
                     words.append(k)
@@ -460,7 +462,7 @@ class Nanoreactor(Molecule):
         self.KnownFormulas = set(known)
         # Exclude certain molecules from being counted in any reaction event
         self.ExcludedFormulas = set(exclude)
-        if printlvl >= 1 and len(self.ExcludedFormulas) > 0: print self.ExcludedFormulas, "is excluded from being part of any reaction"
+        if printlvl >= 1 and len(self.ExcludedFormulas) > 0: print(self.ExcludedFormulas, "is excluded from being part of any reaction")
         # The print level (control the amount of printout)
         self.printlvl = printlvl
         # List of favorite colors for VMD coloring (excluding reds)
@@ -535,20 +537,20 @@ class Nanoreactor(Molecule):
         self.PadTime = int(self.PadTime / self.dt_fs)
         self.freqCutoff = cutoff
             
-        if self.printlvl >= 0: print "Done loading files"
-        print "The simulation timestep is %.1f fs" % self.dt_fs
-        print "Identification time for molecules is %.1f fs" % self.LearnTime
+        if self.printlvl >= 0: print("Done loading files")
+        print("The simulation timestep is %.1f fs" % self.dt_fs)
+        print("Identification time for molecules is %.1f fs" % self.LearnTime)
         if self.freqCutoff == 0.0:
-            print "Skipping lowpass filter on time series"
+            print("Skipping lowpass filter on time series")
         else:
-            print "Lowpass filter cutoff is %.1f cm^-1 (%.1f fs)" % (self.freqCutoff, 33355.0/self.freqCutoff)
-        print "Padding each reaction event with %.1f fs" % self.PadTime
+            print("Lowpass filter cutoff is %.1f cm^-1 (%.1f fs)" % (self.freqCutoff, 33355.0/self.freqCutoff))
+        print("Padding each reaction event with %.1f fs" % self.PadTime)
         
         #==========================#
         #   Initialize Variables   #
         #==========================#
         # An iterator over all atom pairs, for example: [[0,1],[0,2],[0,3],[1,2],[1,3],[2,3]]
-        self.AtomIterator = np.array(list(itertools.combinations(range(self.na),2)))
+        self.AtomIterator = np.array(list(itertools.combinations(list(range(self.na)),2)))
         # Set of isomers that are RECORDED.
         self.Recorded = set()
         # A time-series of atom-wise isomer labels.
@@ -561,7 +563,7 @@ class Nanoreactor(Molecule):
                 atom_symbol = radii[i]
                 custom_rad = float(radii[i+1])
                 Radii[Elements.index(atom_symbol)-1] = custom_rad
-                print "Custom covalent radius for %2s : %.3f" % (atom_symbol, custom_rad)
+                print("Custom covalent radius for %2s : %.3f" % (atom_symbol, custom_rad))
             # Measure interatomic distances.
             self.dxSparse, self.dxThre = self.timing(self.measureDistances, "Measuring interatomic distances", self.sparsePad, mindist)
             self.dxFiltered = self.timing(self.tsFilter, "Filtering distance time series", self.dxSparse, self.dxThre, self.freqCutoff, 'dx', 'plot_dx.pdf' if plot else None)
@@ -613,11 +615,11 @@ class Nanoreactor(Molecule):
             Positional and keyword arguments expected by the function
         """
         if self.printlvl >= 0:
-            print msg + " ...",
+            print(msg + " ...", end=' ')
             t0 = time.time()
         ret = func(*args, **kwargs)
         if self.printlvl >= 0:
-            print "%.3f s" % (time.time()-t0)
+            print("%.3f s" % (time.time()-t0))
         return ret
 
     def measureDistances(self, pad, mindist=1.0):
@@ -657,7 +659,7 @@ class Nanoreactor(Molecule):
         dxThre = OrderedDict()
         # Build graphs from the distance matrices
         while i < len(self.AtomIterator):
-            if self.printlvl >= 2: print "%i/%i" % (i, len(self.AtomIterator))
+            if self.printlvl >= 2: print("%i/%i" % (i, len(self.AtomIterator)))
             j = min(i+batch, len(self.AtomIterator))
             if hasattr(self, 'boxes'):
                 boxes = np.array([[self.boxes[s].a, self.boxes[s].b, self.boxes[s].c] for s in range(len(self))])
@@ -720,7 +722,7 @@ class Nanoreactor(Molecule):
     
             histograms = OrderedDict()
             for i in range(0, len(tsArr)):
-                if self.printlvl >= 2 and i%100 == 0: print "Plotting timeseries %i/%i" % (i, len(tsArr))
+                if self.printlvl >= 2 and i%100 == 0: print("Plotting timeseries %i/%i" % (i, len(tsArr)))
                 fign = i%10
                 if fign == 0:
                     fig = plt.figure()
@@ -854,7 +856,7 @@ class Nanoreactor(Molecule):
         gg_frames : OrderedDict
             Mapping of frame numbers to 2-tuple containing (corresponding entry in global_pairGraphs, next frame)
         """
-        tsPairs = np.array(tsData.keys())
+        tsPairs = np.array(list(tsData.keys()))
         tsArr = np.array(list(tsData.values()))
         
         # Convert tsThre to array if needed
@@ -891,22 +893,22 @@ class Nanoreactor(Molecule):
                 if globalGraphs[igg] == gg:
                     gg_idx = igg
                     if self.printlvl >= 2:
-                        print "frame %i repeats global graph %i" % (i, gg_idx),
+                        print("frame %i repeats global graph %i" % (i, gg_idx), end=' ')
                     gg_frames[i] = gg_idx
                     break
             else:
                 # The global graph that just appeared has not been seen previously
                 gg_idx = len(globalGraphs)
                 if self.printlvl >= 2:
-                    print "frame %i found new global graph: %i" % (i, gg_idx),
+                    print("frame %i found new global graph: %i" % (i, gg_idx), end=' ')
                 globalGraphs.append(gg)
                 gg_frames[i] = gg_idx
             if i > 0 and self.printlvl >= 2:
                 added = ['%i-%i' % (tsPairs[i, 0]+1, tsPairs[i, 1]+1) for i in sorted(list(set(gg) - set(lastGraph)))]
                 removed = ['%i-%i' % (tsPairs[i, 0]+1, tsPairs[i, 1]+1) for i in sorted(list(set(lastGraph) - set(gg)))]
-                if len(added) > 0: print "added", ','.join(added),
-                if len(removed) > 0: print "removed", ','.join(removed),
-                print
+                if len(added) > 0: print("added", ','.join(added), end=' ')
+                if len(removed) > 0: print("removed", ','.join(removed), end=' ')
+                print()
             lastGraph = gg
 
         # Make list of global graphs that actually consists of lists of atom pairs
@@ -923,7 +925,7 @@ class Nanoreactor(Molecule):
                 
         # Build the BondLists, a "trajectory of bonded pairs" for writing bonds.dat for visualization.
         BondLists = []
-        for currFrame, (ggId, nextFrame) in gg_frames.items():
+        for currFrame, (ggId, nextFrame) in list(gg_frames.items()):
             bonds = [[] for i in range(self.na)]
             for (ii, jj) in global_pairGraphs[ggId]:
                 bonds[ii].append(jj)
@@ -998,7 +1000,7 @@ class Nanoreactor(Molecule):
         for igg, globalGraph in enumerate(self.global_graphs):
             # Get "alive times" for this global graph
             aliveIntvls = []
-            for ggFrame, (ggId, nextFrame) in self.gg_frames.items():
+            for ggFrame, (ggId, nextFrame) in list(self.gg_frames.items()):
                 if igg == ggId:
                     aliveIntvls.append((ggFrame, nextFrame))
             # Build the NetworkX graph object for this global graph and split it into
@@ -1063,14 +1065,14 @@ class Nanoreactor(Molecule):
                 ts = TimeSeries[molID]
                 atom_str, iidx_str = molID.split(':')
                 ef_str = ts['graph'].ef()
-                ts_str = ''.join([(u"/\u203E%i\u203E\\" % t[0]) if t[1] else ('_%i_' % t[0]) for t in encode(ts['raw_signal'])])
-                print (u"molecule index %i formula %s iidx %s atoms %s series %s" % (MolIDs.index(molID), ef_str, iidx_str, atom_str, ts_str)).encode('utf-8')
+                ts_str = ''.join([("/\u203E%i\u203E\\" % t[0]) if t[1] else ('_%i_' % t[0]) for t in encode(ts['raw_signal'])])
+                print(("molecule index %i formula %s iidx %s atoms %s series %s" % (MolIDs.index(molID), ef_str, iidx_str, atom_str, ts_str)).encode('utf-8'))
 
         return Isomers, MolIDs, TimeSeries, traj_iidx, traj_midx, traj_stable, known_iidx
 
     def makeWhole(self):
         if not hasattr(self, 'boxes'): return
-        for molID, ts in self.TimeSeries.items():
+        for molID, ts in list(self.TimeSeries.items()):
             frame = 0
             G = ts['graph']
             atoms = np.array(G.L())
@@ -1209,7 +1211,7 @@ class Nanoreactor(Molecule):
         molIDs = [self.MolIDs[i] for i in sorted(list(molidxs))]
         molatoms = sorted(list(itertools.chain(*[self.TimeSeries[molID]['graph'].L() for molID in molIDs])))
         if not self.traj_stable[frame, atoms].all():
-            print frame, atoms, self.traj_stable[frame, atoms]
+            print(frame, atoms, self.traj_stable[frame, atoms])
             raise RuntimeError("getMolIDs called using frames and atoms that do not have stable molecules")
         if (np.array(molatoms) != atoms).any():
             raise RuntimeError("getMolIDs called using frames and atoms that do not correspond to complete molecules")
@@ -1295,16 +1297,16 @@ class Nanoreactor(Molecule):
             (If not a valid reaction event, None will be returned)
         """
         if frame1 == 0:
-            if self.printlvl >= 2: print "Scanned past start"
+            if self.printlvl >= 2: print("Scanned past start")
             return None, None
         if frame2 == len(self)-1:
-            if self.printlvl >= 2: print "Scanned past end"
+            if self.printlvl >= 2: print("Scanned past end")
             return None, None
         molid1 = self.getMolIDs(frame1, atoms)
         molid2 = self.getMolIDs(frame2, atoms)
         common = set(molid1).intersection(set(molid2))
         if len(common) > 0:
-            if self.printlvl >= 2: print "** Common molIDs: **", sorted(list(common))
+            if self.printlvl >= 2: print("** Common molIDs: **", sorted(list(common)))
         # Remove spectator molecules from the reaction event. This makes an assumption that
         # we are ignoring molecules that "catalyze" the reaction. On the other hand, 
         # this method isn't guaranteed to find all molecules that catalyze the reaction,
@@ -1312,19 +1314,19 @@ class Nanoreactor(Molecule):
         molid1 = [m for m in molid1 if m not in common]
         molid2 = [m for m in molid2 if m not in common]
         if len(molid1) == 0:
-            if self.printlvl >= 2: print "No molecules left after removing spectators"
+            if self.printlvl >= 2: print("No molecules left after removing spectators")
             return None, None
         # Check if any of the molecules are included in the excluded formulas; if so, do not keep it
         for molID in molid1 + molid2:
             ef = self.TimeSeries[molID]['graph'].ef()
             if (ef in self.ExcludedFormulas or wildmatch(ef, self.ExcludedFormulas)):
-                if self.printlvl >= 2: print "Reaction event includes excluded molecules"
+                if self.printlvl >= 2: print("Reaction event includes excluded molecules")
                 return None, None
         # Re-create the list of atoms which may be reduced now that spectators are removed
         atoms = np.array(sorted(list(itertools.chain(*[self.TimeSeries[molID]['graph'].L() for molID in molid1]))))
         frame1Pad, frame2Pad = self.padFrames(frame1, frame2, atoms)
         if self.getMolIDs(frame1Pad, atoms) != molid1 or self.getMolIDs(frame2Pad, atoms) != molid2:
-            print atoms, molid1, self.getMolIDs(frame1Pad, atoms), molid2, self.getMolIDs(frame2Pad, atoms),
+            print(atoms, molid1, self.getMolIDs(frame1Pad, atoms), molid2, self.getMolIDs(frame2Pad, atoms), end=' ')
             raise RuntimeError('padFrames malfunction')
         if self.neutralize:
             neu_molID, success = self.getNeutralizing(frame1, frame2, atoms)
@@ -1338,8 +1340,8 @@ class Nanoreactor(Molecule):
                              ('equation', "%s->%s" % (formula1, formula2)), ('atoms', atoms.copy())])
         EventID = '%i-%i:%s' % (frame1Pad, frame2Pad, commadash(atoms))
         if self.printlvl >= 2:
-            print "Event ID:", EventID, "%s -> %s" % (formula1, formula2),
-            print "Frames: %i-%i" % (frame1Pad, frame2Pad), "Molecule IDs: %s -> %s" % (molid1, molid2)
+            print("Event ID:", EventID, "%s -> %s" % (formula1, formula2), end=' ')
+            print("Frames: %i-%i" % (frame1Pad, frame2Pad), "Molecule IDs: %s -> %s" % (molid1, molid2))
         return EventID, Event
                         
     def findReactionEvents(self):
@@ -1373,12 +1375,12 @@ class Nanoreactor(Molecule):
         unsortedEvents = {}
         for molNum, (molID, ts) in enumerate(self.TimeSeries.items()):
             if self.printlvl >= 2:
-                print "============="
-                print "Molecule", molNum, molID, ts['graph'].ef()
+                print("=============")
+                print("Molecule", molNum, molID, ts['graph'].ef())
             atoms = np.array(ts['graph'].L())
-            for fstart, intvl in ts['stable_times'].items():
+            for fstart, intvl in list(ts['stable_times'].items()):
                 fend = fstart + intvl - 1
-                if self.printlvl >= 2: print "Start Intvl End", fstart, intvl, fend
+                if self.printlvl >= 2: print("Start Intvl End", fstart, intvl, fend)
                 if fstart > 0:
                     # Look for reaction event that led to formation of this molecule
                     rstart, rend, ratoms = self.completeEvent(fstart, atoms, -1)
@@ -1394,12 +1396,12 @@ class Nanoreactor(Molecule):
 
         sortkeys = []
         lookup = {}
-        for evid in unsortedEvents.keys():
+        for evid in list(unsortedEvents.keys()):
             frameWord, atomWord = evid.split(':')
             atomList = uncommadash(atomWord)
             key = (int(frameWord.split('-')[0]), int(frameWord.split('-')[1])) + tuple(atomList)
             if key in sortkeys:
-                print key, evid, lookup[key]
+                print(key, evid, lookup[key])
                 raise RuntimeError('key is duplicated in sortkeys')
             sortkeys.append(key)
             lookup[key] = evid
@@ -1413,11 +1415,11 @@ class Nanoreactor(Molecule):
 
         if self.printlvl >= 2:
             for iev, evid in enumerate(EventIDs):
-                print iev, evid, Events[evid]['equation'], Events[evid]['molIDs']
+                print(iev, evid, Events[evid]['equation'], Events[evid]['molIDs'])
         elif self.printlvl >= 1:
             for iev, evid in enumerate(EventIDs):
                 Event = Events[evid]
-                print "Reaction event found (%i/%i) : frames %i-%i : %s" % (iev+1, len(Events), Event['frames'][0], Event['frames'][1], Event['equation'])
+                print("Reaction event found (%i/%i) : frames %i-%i : %s" % (iev+1, len(Events), Event['frames'][0], Event['frames'][1], Event['equation']))
 
         return EventIDs, Events
 
@@ -1490,7 +1492,7 @@ class Nanoreactor(Molecule):
                     if frame == 0 and knownFirst:
                         IData['flag'] = "Known"
                 frame += intvl
-            for frame, intvl in ts['stable_times'].items():
+            for frame, intvl in list(ts['stable_times'].items()):
                 IData['stableIntervals'].append((frame, intvl))
                 IData['stableIndices'].append(ts['graph'].L())
                 if IData['flag'] == "Transient":
@@ -1500,15 +1502,15 @@ class Nanoreactor(Molecule):
         # Sort isomers according to the first frame that any instance of the isomer occurs.
         # Molecules that are transient are printed at the end.
         sortKeys = []
-        for iidx, IData in IsomerData.items():
+        for iidx, IData in list(IsomerData.items()):
             firstStable = min([s[0] for s in IData['stableIntervals']]) if IData['stableIntervals'] else len(self)
             sortKeys.append((firstStable, iidx))
 
         # Print summary table.
         if self.printlvl >= 0:
-            print
-            print "%10s %20s %10s %10s %10s %10s %10s %10s %20s" % ("Index", "Formula", "Instances", "firstFound", "firstStabl", "maxStable", "meanStable", "Flag", "Color")
-            print "="*120
+            print()
+            print("%10s %20s %10s %10s %10s %10s %10s %10s %20s" % ("Index", "Formula", "Instances", "firstFound", "firstStabl", "maxStable", "meanStable", "Flag", "Color"))
+            print("="*120)
         ColorNum = 0
         nsave = 0
         for key in sorted(sortKeys):
@@ -1523,8 +1525,8 @@ class Nanoreactor(Molecule):
                 firstStable = min([s[0] for s in IData['stableIntervals']]) if IData['stableIntervals'] else len(self)
                 maxInterval = max([s[1] for s in IData['stableIntervals']]) if IData['stableIntervals'] else 0
                 avgLife = np.mean([i[1] for i in IData['stableIntervals']]) if IData['stableIntervals'] else 0
-                print "%10i %20s %10i %10i %10i %10i %10.2f %10s %20s" % (iidx, IData['graph'].ef(), len(IData['midx']), IData['firstFound'], firstStable, maxInterval,
-                                                                          avgLife, IData['flag'], "%s (%i)" % (ColorNames[IData['color']], IData['color']))
+                print("%10i %20s %10i %10i %10i %10i %10.2f %10s %20s" % (iidx, IData['graph'].ef(), len(IData['midx']), IData['firstFound'], firstStable, maxInterval,
+                                                                          avgLife, IData['flag'], "%s (%i)" % (ColorNames[IData['color']], IData['color'])))
 
         # Save longest stable intervals to the 'isomers' folder
         if self.save_molecules:
@@ -1540,8 +1542,8 @@ class Nanoreactor(Molecule):
                     if not os.path.exists(odir): os.makedirs(odir)
                     fout = 'molecule_%03i.xyz' % nsave
                     formula = IData['graph'].ef()
-                    if self.printlvl >= 2: print "Writing iidx %i (%i/%i stable), frames %i-%i to file %s : %s" % (iidx, nsave+1, nFound, frame, frame+intvl, fout, formula)
-                    elif self.printlvl >= 1: print "Writing isomer %i/%i, frames %i-%i to file %s : %s" % (nsave+1, nFound, frame, frame+intvl, fout, formula)
+                    if self.printlvl >= 2: print("Writing iidx %i (%i/%i stable), frames %i-%i to file %s : %s" % (iidx, nsave+1, nFound, frame, frame+intvl, fout, formula))
+                    elif self.printlvl >= 1: print("Writing isomer %i/%i, frames %i-%i to file %s : %s" % (nsave+1, nFound, frame, frame+intvl, fout, formula))
                     traj_slice.comms = ["%s atoms %s frame %i charge %+.3f sz %+.3f sz^2 %.3f"
                                         % (formula, commadash(atoms), f, sum(self.Charges[f][atoms]),
                                            sum(self.Spins[f][atoms]), sum([j**2 for j in self.Spins[f][atoms]])) for f in range (frame, frame+intvl)]
@@ -1597,12 +1599,12 @@ class Nanoreactor(Molecule):
             p_iidx = sorted([self.TimeSeries[i]['iidx'] for i in event['molIDs'][1]])
             for iout, (r_out, p_out) in enumerate(output_iidx):
                 if (r_iidx == r_out and p_iidx == p_out) or (r_iidx == p_out and p_iidx == r_out):
-                    if self.printlvl >= 2: print "reaction ID %s repeats output id %i" % (evid, iout)
+                    if self.printlvl >= 2: print("reaction ID %s repeats output id %i" % (evid, iout))
                     event['output_id'] = iout
                     break
             else:
                 event['output_id'] = len(output_iidx)
-                if self.printlvl >= 2: print "reaction ID %s assigned output id %i" % (evid, len(output_iidx))
+                if self.printlvl >= 2: print("reaction ID %s assigned output id %i" % (evid, len(output_iidx)))
                 output_iidx.append((r_iidx, p_iidx))
 
         odir = 'reactions'
@@ -1611,6 +1613,7 @@ class Nanoreactor(Molecule):
         # then over all of the reaction events that match these isomer indices.
         for iout in range(len(output_iidx)):
             repeat = 0
+            
             for iev, (evid, event) in enumerate(self.Events.items()):
                 if event['output_id'] == iout:
                     # Determine the file name
@@ -1622,8 +1625,8 @@ class Nanoreactor(Molecule):
                     fstart, fend = self.Events[evid]['frames']#[int(i) for i in evid.split(':')[0].split('-')]
                     atoms = self.Events[evid]['atoms']#np.array(uncommadash(evid.split(':')[1]))
                     traj_slice = self.atom_select(atoms)[fstart:fend+1]
-                    if self.printlvl >= 2: print "Writing event ID %s, number %i, frames %i-%i to file %s" % (evid, iev, fstart, fend, fout)
-                    elif self.printlvl >= 1: print "Writing event number %i/%i, frames %i-%i to file %s : %s" % (iev+1, len(self.Events), fstart, fend, fout, self.Events[evid]['equation'])
+                    if self.printlvl >= 2: print("Writing event ID %s, number %i, frames %i-%i to file %s" % (evid, iev, fstart, fend, fout))
+                    elif self.printlvl >= 1: print("Writing event number %i/%i, frames %i-%i to file %s : %s" % (iev+1, len(self.Events), fstart, fend, fout, self.Events[evid]['equation']))
                     a = event['atoms']
                     traj_slice.comms = ["%s atoms %s frame %i charge %+.3f sz %+.3f sz^2 %.3f"
                                         % (event['equation'], commadash(a), f, sum(self.Charges[f][a]),
@@ -1642,7 +1645,19 @@ class Nanoreactor(Molecule):
                         traj_slice_pop.xyzs = list(pop_arr)
                         traj_slice_pop.write(os.path.join(odir, fout.replace('.xyz', '.pop')), ftype='xyz')
                     repeat += 1
+
+            pth = './reactions/'
+            files = os.listdir(pth) 
+            os.mkdir('reaction_%03i' % iout )                
+            os.chdir('./reactions/')
+            for f in files:
+                if fnmatch.fnmatch(f,'*.xyz') or fnmatch.fnmatch(f,'*.pop'):
+                    shutil.move(f,'../reaction_%03i/' % iout)
                 
+            shutil.move('../reaction_%03i' % iout,'./reaction_%03i' % iout)
+            os.chdir('../')
+            #shutil.move('./reactions/*.pop','./reactions/reaction_%03i' % iout)
+
     def WriteChargeSpinLabels(self):
         """
         Write charge and spin labels to charge.dat and spin.dat for use in VMD visualization.
@@ -1652,11 +1667,11 @@ class Nanoreactor(Molecule):
         ChargeLabels = [[] for i in range(self.ns)]
         #print self.Recorded
         RecSeries = {}
-        for molID,ts in self.TimeSeries.items(): # Loop over graph IDs and time series
+        for molID,ts in list(self.TimeSeries.items()): # Loop over graph IDs and time series
             if ts['iidx'] in self.Recorded:
                 RecSeries[molID] = ts
 
-        for molID,ts in RecSeries.items():
+        for molID,ts in list(RecSeries.items()):
             idx = np.array(ts['graph'].L())
             decoded = decode(ts['raw_signal'])
             for i in range(self.ns):
@@ -1675,16 +1690,16 @@ class Nanoreactor(Molecule):
             for AtomChgTuple in Label:
                 # This generates a string like 100 101 102! 103, 0.25; which indicates the atoms in a molecule, the net charge on that molecule, and the atom
                 # with the greatest charge marked by an exclamation point
-                print >> qout, "%s, %s;" % (' '.join(["%i%s" % (i, "!" if i == AtomChgTuple[2] else "") for i in AtomChgTuple[0]]), AtomChgTuple[1]),
-            print >> qout
+                print("%s, %s;" % (' '.join(["%i%s" % (i, "!" if i == AtomChgTuple[2] else "") for i in AtomChgTuple[0]]), AtomChgTuple[1]), end=' ', file=qout)
+            print(file=qout)
 
         Threshold = 0.25
         sout = open('spin.dat','w')
         for i in range(self.ns):
             for a in range(self.na):
                 if abs(self.Spins[i][a]) >= Threshold:
-                    print >> sout, "%i %+.2f" % (a, self.Spins[i][a]),
-            print >> sout
+                    print("%i %+.2f" % (a, self.Spins[i][a]), end=' ', file=sout)
+            print(file=sout)
         qout.close()
 
     def getNeutralizing(self, frame1, frame2, atoms, tol=0.25):
@@ -1720,14 +1735,14 @@ class Nanoreactor(Molecule):
         # Don't add any molecules if the molecule is already neutralized
         if np.abs(chg) < tol:
             return [],[]
-        if self.printlvl >= 2: print "Attempting to neutralize atoms %s (charge %+.3f spin %+.3f)" % (commadash(atoms), chg, spn)
+        if self.printlvl >= 2: print("Attempting to neutralize atoms %s (charge %+.3f spin %+.3f)" % (commadash(atoms), chg, spn))
         xyz = np.array(self.atom_select(atoms)[frames].xyzs)
         
         # Ordered dictionary of candidate molecules to be added to the list
         Candidates = OrderedDict()
         Candidate = namedtuple('Candidate', ['mindx', 'maxdx', 'chg', 'spn'])
         # Loop over all molecules in the time series
-        for molID, ts in self.TimeSeries.items():
+        for molID, ts in list(self.TimeSeries.items()):
             # Check to make sure that this molecule exists for ALL frames in the frame selection
             # and does not overlap with ANY atoms in our atom selection.
             if set(ts['graph'].L()).intersection(set(atoms)): continue
@@ -1750,7 +1765,7 @@ class Nanoreactor(Molecule):
                 Candidates[molID] = Candidate(min(c_contact), max(c_contact), c_chg, c_spn)
 
         # Now loop over all candidates in order of increasing closest contact distance
-        molID_sorted_maxdist = [list(Candidates.keys())[i] for i in np.argsort([c.maxdx for c in Candidates.values()])]
+        molID_sorted_maxdist = [list(Candidates.keys())[i] for i in np.argsort([c.maxdx for c in list(Candidates.values())])]
         keep_molID = []
         success = False
         curr_chg = chg
@@ -1770,12 +1785,12 @@ class Nanoreactor(Molecule):
             nspin = int(round(new_spn))
             # The number of electrons should be odd iff the spin is odd.
             if nelec%2 != nspin%2:
-                print nprot, nelec, nspin
-                if self.printlvl >= 2: print "\x1b[91mInconsistent\x1b[0m charge/spin (charge %+.3f -> %+.3f, spin %+.3f -> %+.3f) ; not adding %s" % (curr_chg, new_chg, curr_spn, new_spn, formula)
+                print(nprot, nelec, nspin)
+                if self.printlvl >= 2: print("\x1b[91mInconsistent\x1b[0m charge/spin (charge %+.3f -> %+.3f, spin %+.3f -> %+.3f) ; not adding %s" % (curr_chg, new_chg, curr_spn, new_spn, formula))
             elif new_chg * chg < 0 and abs(new_chg) > tol:
-                if self.printlvl >= 2: print "\x1b[91mOvershot\x1b[0m the reaction (charge %+.3f -> %+.3f) ; not adding molID %s" % (curr_chg, new_chg, formula)
+                if self.printlvl >= 2: print("\x1b[91mOvershot\x1b[0m the reaction (charge %+.3f -> %+.3f) ; not adding molID %s" % (curr_chg, new_chg, formula))
             else:
-                if self.printlvl >= 2: print "\x1b[91mReducing net charge of\x1b[0m reaction (charge %+.3f -> %+.3f) ; adding molID %s" % (curr_chg, new_chg, formula)
+                if self.printlvl >= 2: print("\x1b[91mReducing net charge of\x1b[0m reaction (charge %+.3f -> %+.3f) ; adding molID %s" % (curr_chg, new_chg, formula))
                 curr_chg = new_chg
                 curr_spn = new_spn
                 valid = True
@@ -1784,12 +1799,12 @@ class Nanoreactor(Molecule):
                 success = True
                 break
             if len(keep_molID) == limit:
-                if self.printlvl >= 2: print "\x1b[92mFailed\x1b[0m after adding %i molecules" % len(keep_molID)
+                if self.printlvl >= 2: print("\x1b[92mFailed\x1b[0m after adding %i molecules" % len(keep_molID))
                 break
         if self.printlvl >= 1:
-            print "Neutralization %s: charge \x1b[94m%+.3f\x1b[0m -> \x1b[92m%+.3f\x1b[0m, spin %+.3f -> %+.3f" % ('success' if success else 'failure', chg, curr_chg, spn, curr_spn),
-            if keep_molID: print "added %s (molIDs %s)" % (formulaSum([self.TimeSeries[m]['graph'].ef() for m in keep_molID]), ' '.join(keep_molID))
-            else: print
+            print("Neutralization %s: charge \x1b[94m%+.3f\x1b[0m -> \x1b[92m%+.3f\x1b[0m, spin %+.3f -> %+.3f" % ('success' if success else 'failure', chg, curr_chg, spn, curr_spn), end=' ')
+            if keep_molID: print("added %s (molIDs %s)" % (formulaSum([self.TimeSeries[m]['graph'].ef() for m in keep_molID]), ' '.join(keep_molID)))
+            else: print()
         return keep_molID, success
 
     def writeColors(self):
@@ -1805,13 +1820,13 @@ material change opacity Ghost 0.000000
 #material change opacity Transparent 0.500000
 
 """
-        print >> self.moviefile, header
+        print(header, file=self.moviefile)
         for a in range(self.na):
             if a > 0:
-                print >> self.moviefile, "mol addrep 0"
-            print >> self.moviefile, "mol modselect %i 0 index %i" % (a, a)
-            print >> self.moviefile, "mol modstyle %i 0 VDW 0.50 27.0" % (a)
-            print >> self.moviefile, "mol modmaterial %i 0 Transparent" % (a)
+                print("mol addrep 0", file=self.moviefile)
+            print("mol modselect %i 0 index %i" % (a, a), file=self.moviefile)
+            print("mol modstyle %i 0 VDW 0.50 27.0" % (a), file=self.moviefile)
+            print("mol modmaterial %i 0 Transparent" % (a), file=self.moviefile)
 
         extra = """
 mol addrep 0
@@ -1824,27 +1839,30 @@ mol addrep 0
 mol modstyle %i 0 VDW 0.150000 27.000000
 """ % (self.na, self.na, self.na + 1, self.na + 1, self.na + 2)
         
-        print >> self.moviefile, extra
+        print(extra, file=self.moviefile)
         renderf = 0
         for f in range(0, self.ns):
             ColorByAtom = self.traj_color[f]
             # ColorByAtom = [self.ColorIdx[j] for j in self.IsoLabels[renderf]]
-            print >> self.moviefile, "animate goto %i" % f
-            print >> self.moviefile, "display resetview"
-            print >> self.moviefile, "display height 4.0"
-            print >> self.moviefile, "rotate y by %.1f" % ((0.1 * renderf) % 360)
+            print("animate goto %i" % f, file=self.moviefile)
+            print("display resetview", file=self.moviefile)
+            print("display height 4.0", file=self.moviefile)
+            print("rotate y by %.1f" % ((0.1 * renderf) % 360), file=self.moviefile)
             for an, color in enumerate(ColorByAtom):
-                print >> self.colortab, color,
+                if an + 1 != ColorByAtom.size:
+                    print(color, end = " ", file=self.colortab)
+                else:
+                    print(color,end = "",  file=self.colortab)
                 if ColorNow[an] != color:
                     ColorNow[an] = color
-                    print >> self.moviefile, "mol modcolor %i 0 ColorID %i" % (an, color)
+                    print("mol modcolor %i 0 ColorID %i" % (an, color), file=self.moviefile)
                     if color == 8:
-                        print >> self.moviefile, "mol modmaterial %i 0 Ghost" % an
+                        print("mol modmaterial %i 0 Ghost" % an, file=self.moviefile)
                     else:
-                        print >> self.moviefile, "mol modmaterial %i 0 Transparent" % an
-            print >> self.colortab
+                        print("mol modmaterial %i 0 Transparent" % an, file=self.moviefile)
+            print(file=self.colortab)
             if self.Render:
-                print >> self.moviefile, "render snapshot frame%04i.tga" % renderf
+                print("render snapshot frame%04i.tga" % renderf, file=self.moviefile)
             renderf += 1
         
     def Output(self):
