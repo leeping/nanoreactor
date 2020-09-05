@@ -1646,17 +1646,13 @@ class Nanoreactor(Molecule):
                         traj_slice_pop.write(os.path.join(odir, fout.replace('.xyz', '.pop')), ftype='xyz')
                     repeat += 1
 
-            pth = './reactions/'
-            files = os.listdir(pth) 
-            os.mkdir('reaction_%03i' % iout )                
+            files = os.listdir(odir) 
             os.chdir('./reactions/')
+            os.mkdir('reaction_%03i' % iout )                
             for f in files:
                 if fnmatch.fnmatch(f,'*.xyz') or fnmatch.fnmatch(f,'*.pop'):
-                    shutil.move(f,'../reaction_%03i/' % iout)
-                
-            shutil.move('../reaction_%03i' % iout,'./reaction_%03i' % iout)
+                    shutil.move(f,'reaction_%03i' % iout)
             os.chdir('../')
-            #shutil.move('./reactions/*.pop','./reactions/reaction_%03i' % iout)
 
     def WriteChargeSpinLabels(self):
         """
