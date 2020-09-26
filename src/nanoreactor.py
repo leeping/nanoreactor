@@ -11,8 +11,6 @@ from .molecule import AtomContact, BuildLatticeFromLengthsAngles, Molecule, form
 #from . import contact
 import itertools
 import time
-import shutil
-import fnmatch
 from pkg_resources import parse_version
 from scipy.signal import butter, freqz
 import matplotlib.pyplot as plt
