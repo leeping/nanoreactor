@@ -1613,8 +1613,9 @@ class Nanoreactor(Molecule):
         # then over all of the reaction events that match these isomer indices.
         for iout in range(len(output_iidx)):
             repeat = 0
-            
+            subd = os.path.join (odir, 'reaction_%03i' % iout)
             for iev, (evid, event) in enumerate(self.Events.items()):
+                if not os.path.exists(subd): os.makedirs(subd)
                 if event['output_id'] == iout:
                     # Determine the file name
                     if repeat == 0:
@@ -1634,7 +1635,7 @@ class Nanoreactor(Molecule):
                     if self.align:
                         traj_slice.center()
                         traj_slice.align()
-                    traj_slice.write(os.path.join(odir, fout))
+                    traj_slice.write(os.path.join(subd, fout))
                     if self.have_pop:
                         # Write .xyz-like file containing Mulliken charge and spin populations
                         # in the first and second columns
@@ -1643,16 +1644,8 @@ class Nanoreactor(Molecule):
                         pop_arr[:, :, 0] = self.Charges[fstart:fend+1, atoms]
                         pop_arr[:, :, 1] = self.Spins[fstart:fend+1, atoms]
                         traj_slice_pop.xyzs = list(pop_arr)
-                        traj_slice_pop.write(os.path.join(odir, fout.replace('.xyz', '.pop')), ftype='xyz')
+                        traj_slice_pop.write(os.path.join(subd,fout.replace('.xyz', '.pop')), ftype='xyz')
                     repeat += 1
-
-            files = os.listdir(odir) 
-            os.chdir('./reactions/')
-            os.mkdir('reaction_%03i' % iout )                
-            for f in files:
-                if fnmatch.fnmatch(f,'*.xyz') or fnmatch.fnmatch(f,'*.pop'):
-                    shutil.move(f,'reaction_%03i' % iout)
-            os.chdir('../')
 
     def WriteChargeSpinLabels(self):
         """
