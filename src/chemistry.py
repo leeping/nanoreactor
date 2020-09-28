@@ -160,7 +160,7 @@ for line in data_from_web.split('\n'):
 def LookupByMass(mass):
     Deviation = 1e10
     EMatch = None
-    for e, m in PeriodicTable.items():
+    for e, m in list(PeriodicTable.items()):
         if np.abs(mass - m) < Deviation:
             EMatch = e
             Deviation = np.abs(mass - m)
@@ -180,7 +180,7 @@ def BondStrengthByLength(A, B, length, artol = 0.33, bias=0.0):
     # Determine the bond order and the bond strength
     # We allow bond order 1.5 as well :)
     Devs = {}
-    for BO, Vals in BondEnergies[A][B].items():
+    for BO, Vals in list(BondEnergies[A][B].items()):
         S = Vals[0]
         L = Vals[1]
         Devs[BO] = np.abs(length-L)
@@ -188,7 +188,7 @@ def BondStrengthByLength(A, B, length, artol = 0.33, bias=0.0):
             BOMatch = BO
             Strength = S
             Deviation = np.abs(length-L)
-    if len(Devs.items()) >= 2:
+    if len(list(Devs.items())) >= 2:
         Spac = Devs[1] + Devs[2]
         Frac1 = Devs[1]/Spac
         Frac2 = Devs[2]/Spac
