@@ -1,1 +1,1 @@
-from xyz import XYZFile
+from .xyz import XYZFile

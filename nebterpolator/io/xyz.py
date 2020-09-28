@@ -56,7 +56,7 @@ class XYZFile(object):
         atom_names = [None for i in range(n_atoms)]
         xyz = np.zeros((n_atoms, 3))
 
-        for i in xrange(n_atoms):
+        for i in range(n_atoms):
             line = self._handle.readline().split()
             if len(line) != 4:
                 raise XYZFormatError('line was not 4 elemnts: %s' % str(line))
@@ -133,7 +133,7 @@ class XYZFile(object):
         self._handle.write('%s\n' % n_atoms)
         self._handle.write(comment)
 
-        for i in xrange(n_atoms):
+        for i in range(n_atoms):
             line = '%-4s %14.10f %14.10f %14.10f\n' % \
                 (atom_names[i], xyz[i, 0], xyz[i, 1], xyz[i, 2])
             self._handle.write(line)

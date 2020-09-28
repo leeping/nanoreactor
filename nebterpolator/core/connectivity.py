@@ -9,7 +9,7 @@ Routines to etermine the bond/angle/dihedral connectivity in a molecular graph.
 import numpy as np
 from scipy.spatial.distance import squareform, pdist
 import networkx as nx
-from itertools import combinations, ifilter
+from itertools import combinations
 
 ##############################################################################
 # GLOBALS
@@ -82,21 +82,21 @@ def bond_connectivity(xyz, atom_names, enhance=1.3):
 
     # TODO: This logic only works for elements that are a single letter
     # If we need to deal with other elements, we can easily generalize it.
-    proper_atom_names = np.zeros(n_atoms, dtype='S1')
-    for i in xrange(n_atoms):
+    proper_atom_names = np.zeros(n_atoms, dtype=str)
+    for i in range(n_atoms):
         # name of the element that is atom[i]
         # take the first character of the AtomNames string,
         # after stripping off any digits
         proper_atom_names[i] = atom_names[i].strip('123456789 ')[:2]
-        if not proper_atom_names[i] in COVALENT_RADII.keys():
+        if not proper_atom_names[i] in list(COVALENT_RADII.keys()):
             raise ValueError("I don't know about this atom_name: %s" %
                              atom_names[i])
 
     distance_mtx = squareform(pdist(xyz))
     connectivity = []
 
-    for i in xrange(n_atoms):
-        for j in xrange(i+1, n_atoms):
+    for i in range(n_atoms):
+        for j in range(i+1, n_atoms):
             # Regular bonds are assigned to all pairs of atoms where
             # the interatomic distance is less than or equal to 1.3 times the
             # sum of their respective covalent radii.
@@ -169,8 +169,8 @@ def dihedral_connectivity(ibonds):
 
     for a in graph.nodes():
         for b in graph.neighbors(a):
-            for c in ifilter(lambda c: c not in [a, b], graph.neighbors(b)):
-                for d in ifilter(lambda d: d not in [a, b, c], graph.neighbors(c)):
+            for c in [c for c in graph.neighbors(b) if c not in [a, b]]:
+                for d in [d for d in graph.neighbors(c) if d not in [a, b, c]]:
                     quadruplet = (a, b, c, d) if a < d else (d, c, b, a)
                     if quadruplet not in idihedrals:
                         idihedrals.append(quadruplet)
