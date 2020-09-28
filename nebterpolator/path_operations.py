@@ -4,17 +4,17 @@
 ##############################################################################
 # Imports
 ##############################################################################
-
+from __future__ import print_function
 # library imports
 import numpy as np
 import itertools
 from scipy.interpolate import UnivariateSpline
 
 # local imports
-import core
-from alignment import align_trajectory
-from smoothing import buttersworth_smooth, angular_smooth, window_smooth
-from inversion import least_squares_cartesian
+from . import core
+from .alignment import align_trajectory
+from .smoothing import buttersworth_smooth, angular_smooth, window_smooth
+from .inversion import least_squares_cartesian
 
 ##############################################################################
 # Globals
@@ -76,7 +76,7 @@ def smooth_internal(xyzlist, atom_names, width, allpairs=False, w_morse=0.0, rep
     dihedral_width = kwargs.pop('dihedral_width', width)
     xyzlist_guess = kwargs.pop('xyzlist_guess', xyzlist)
     xyzlist_match = kwargs.pop('xyzlist_match', None)
-    for key in kwargs.keys():
+    for key in list(kwargs.keys()):
         raise KeyError('Unrecognized key, %s' % key)
 
     ibonds, iangles, idihedrals = None, None, None
@@ -91,15 +91,15 @@ def smooth_internal(xyzlist, atom_names, width, allpairs=False, w_morse=0.0, rep
     s_bonds = np.zeros_like(bonds)
     s_angles = np.zeros_like(angles)
     s_dihedrals = np.zeros_like(dihedrals)
-    for i in xrange(bonds.shape[1]):
+    for i in range(bonds.shape[1]):
         #s_bonds[:, i] = buttersworth_smooth(bonds[:, i], width=bond_width)
         s_bonds[:, i] = window_smooth(bonds[:, i], window_len=bond_width, window=window)
-    for i in xrange(angles.shape[1]):
+    for i in range(angles.shape[1]):
         #s_angles[:, i] = buttersworth_smooth(angles[:, i], width=angle_width)
         s_angles[:, i] = window_smooth(angles[:, i], window_len=angle_width, window=window)
     # filter the dihedrals with the angular smoother, that filters
     # the sin and cos components separately
-    for i in xrange(dihedrals.shape[1]):
+    for i in range(dihedrals.shape[1]):
         #s_dihedrals[:, i] = angular_smooth(dihedrals[:, i],
         #    smoothing_func=buttersworth_smooth, width=dihedral_width)
         s_dihedrals[:, i] = angular_smooth(dihedrals[:, i],
@@ -166,28 +166,28 @@ def smooth_internal(xyzlist, atom_names, width, allpairs=False, w_morse=0.0, rep
                     else:
                         w_xref *= 1.5
                 if w_xref > 30:
-                    print "\nanchor %f, giving up" % (w_xref)
+                    print("\nanchor %f, giving up" % (w_xref))
                     # Set it back to a reasonable (but still high) number
                     w_xrefs = 20.0
                     passed = True
                 else:
-                    print "jump %f max(dx) %f, trying anchor = %f\r" % (jmp, maxd1, w_xref),
+                    print("jump %f max(dx) %f, trying anchor = %f\r" % (jmp, maxd1, w_xref), end=' ')
                 corrected = True
         if xyzlist_match != None:
             aligned_ij = align_trajectory(np.array([s_xyzlist[i], xyzlist_match[i]]), 0)
             maxd_ij = np.max(np.abs(aligned_ij[1] - aligned_ij[0]))
             if maxd_ij < 1e-3:
-                print "% .4f" % maxd_ij, "\x1b[92mMatch\x1b[0m"
+                print("% .4f" % maxd_ij, "\x1b[92mMatch\x1b[0m")
                 s_xyzlist[i:] = xyzlist_match[i:]
                 break
         # Print out a message if we had to correct it.
         if corrected:
-            print '\rxyz: error %f max(dx) %f jump %s anchor %f' % (errors[i], maxd1, jmp, w_xref)
+            print('\rxyz: error %f max(dx) %f jump %s anchor %f' % (errors[i], maxd1, jmp, w_xref))
         if (i%10) == 0:
-            print "\rWorking on frame %i / %i" % (i, len(xyzlist_guess)),
-            print
+            print("\rWorking on frame %i / %i" % (i, len(xyzlist_guess)), end=' ')
+            print()
         if i > 0:
-            print 'max(dx) %f (new) %f (old) %s%f\x1b[0m (ratio)' % (maxd1, maxd0, "\x1b[91m" if jmp > 3 else "", jmp)
+            print('max(dx) %f (new) %f (old) %s%f\x1b[0m (ratio)' % (maxd1, maxd0, "\x1b[91m" if jmp > 3 else "", jmp))
 
     #return_value = (interweave(s_xyzlist), interweave(errors))
     return_value = s_xyzlist, errors
@@ -315,6 +315,6 @@ def union_connectivity(xyzlist, atom_names, allpairs=False):
 
     # get ALL of the possible bonds
     if allpairs:
-        ibonds = np.array(list(itertools.combinations(range(xyzlist.shape[1]), 2)))
+        ibonds = np.array(list(itertools.combinations(list(range(xyzlist.shape[1])), 2)))
 
     return ibonds, iangles, idihedrals

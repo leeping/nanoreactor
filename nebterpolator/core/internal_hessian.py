@@ -6,11 +6,11 @@ coordinates (bonds, angles, dihedrals) with respect to cartesian coordinates
 ##############################################################################
 # Imports
 ##############################################################################
-
+from __future__ import print_function
 import numpy as np
 
-import internal
-import internal_derivs
+from . import internal
+from . import internal_derivs
 
 ##############################################################################
 # GLOBALS
@@ -218,7 +218,7 @@ def dihedral_hessian(xyz, idihedrals):
     
         
 if __name__ == '__main__':
-    import internal_derivs
+    from . import internal_derivs
     #np.random.seed(10)
     
     h = 1e-10
@@ -237,20 +237,20 @@ if __name__ == '__main__':
     # print hessian[0, 1, 1]
     
     
-    print '\nTESTING ANGLE HESSIAN'
+    print('\nTESTING ANGLE HESSIAN')
     jac1 = internal_derivs.angle_derivs(xyz, iangles)
     jac2 = internal_derivs.angle_derivs(xyz2, iangles)
     hessian = angle_hessian(xyz, iangles)
-    print ((jac2-jac1)/h)[0]
-    print
-    print hessian[0, 1, 1] 
+    print(((jac2-jac1)/h)[0])
+    print()
+    print(hessian[0, 1, 1]) 
     
-    print '\nTESTING DIHEDRAL HESSIAN'
+    print('\nTESTING DIHEDRAL HESSIAN')
     jac1, hessian = dihedral_hessian(xyz, idihedrals)
     jac2, hessian = dihedral_hessian(xyz2, idihedrals)
 
-    print 'These matricies should match'
-    print ((jac2-jac1)/h)[0]
-    print 
-    print hessian[0][1,1]
+    print('These matricies should match')
+    print(((jac2-jac1)/h)[0])
+    print() 
+    print(hessian[0][1,1])
     
