@@ -4,8 +4,8 @@
 Run a Q-Chem geometry optimization.  Save frames where the energy is
 monotonically decreasing and save charges / spins to disk.
 """
-
-from nanoreactor import contact
+from __future__ import print_function
+#from nanoreactor import contact
 from nanoreactor.qchem import QChem, tarexit
 from nanoreactor.molecule import Molecule
 from nanoreactor.nifty import _exec, click, monotonic_decreasing
@@ -88,13 +88,13 @@ def QCOptIC(*args, **kwargs):
     """
     OptOut = QCOpt(*args, cart=False, **kwargs)
     if OptOut.qcerr == 'OPTIMIZE fatal error':
-        print "Internal cartesian coordinates failed - trying Cartesian"
+        print("Internal cartesian coordinates failed - trying Cartesian")
         OptOut = QCOpt(*args, cart=True, **kwargs)
     # Return success on maximum cycles reached.
     if len(OptOut.qcerr) == 0 or OptOut.qcerr == 'Maximum optimization cycles reached':
         return OptOut
     else:
-        print "Geometry optimization failed! (%s)" % OptOut.qcerr
+        print("Geometry optimization failed! (%s)" % OptOut.qcerr)
         tarexit()
 
 def main():

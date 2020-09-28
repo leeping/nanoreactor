@@ -3,7 +3,7 @@
 #|     managing database of reactions      |#
 #|  Authors: Lee-Ping Wang, Leah Bendavid  |#
 #===========================================#
-
+from __future__ import print_function
 import os, sys, re, shutil, time
 import numpy as np
 import argparse
@@ -11,9 +11,9 @@ import traceback
 from copy import deepcopy
 from collections import Counter, OrderedDict
 import subprocess
-from molecule import Molecule, TopEqual, MolEqual, Elements, extract_int, arc, EqualSpacing
-from nifty import _exec, natural_sort, extract_tar
-from output import logger
+from .molecule import Molecule, TopEqual, MolEqual, Elements, extract_int, arc, EqualSpacing
+from .nifty import _exec, natural_sort, extract_tar
+from .output import logger
 # json is used for saving dictionaries to file.
 import json
 try:
@@ -32,7 +32,7 @@ def create_work_queue(port):
     if work_queue == None:
         logger.error("Cannot create Work Queue because work_queue module not found")
         raise RuntimeError
-    WQ = work_queue.WorkQueue(port=port, exclusive=False, shutdown=False)
+    WQ = work_queue.WorkQueue(port=port, shutdown=False)
     WQ.specify_name('refine')
     WQ.specify_keepalive_interval(8640000)
     # Calculations submitted first get run first
@@ -191,9 +191,9 @@ def find_reacting_groups(m1, m2):
             logger.error("I expected an atom group with any spectators to be a single molecule")
             raise RuntimeError
         else:
-            strrxn = ' + '.join(['%s%s' % (str(j) if j>1 else '', i) for i, j in Counter([m.ef() for m in m1g.molecules]).items()])
+            strrxn = ' + '.join(['%s%s' % (str(j) if j>1 else '', i) for i, j in list(Counter([m.ef() for m in m1g.molecules]).items())])
             strrxn += ' -> '
-            strrxn += ' + '.join(['%s%s' % (str(j) if j>1 else '', i) for i, j in Counter([m.ef() for m in m2g.molecules]).items()])
+            strrxn += ' + '.join(['%s%s' % (str(j) if j>1 else '', i) for i, j in list(Counter([m.ef() for m in m2g.molecules]).items())])
             strrxns.append(strrxn)
             
         # Now we have a group of reacting atoms that we can extract from the
@@ -211,7 +211,7 @@ def find_reacting_groups(m1, m2):
         # If the sanity checks fail, then do not extract the spectator atoms
         # and simply return a list of all the atoms at the end.
         do_extract = True
-        if ((nelectron-spn)/2)*2 != (nelectron-spn):
+        if ((nelectron-spn)//2)*2 != (nelectron-spn):
             logger.info("\x1b[91mThe number of electrons (%i; charge %i) is inconsistent with the spin-z (%i)\x1b[0m" % (nelectron, chg, spn), printlvl=1)
             do_extract = False
             break
@@ -226,12 +226,12 @@ def find_reacting_groups(m1, m2):
         message = "Initial Reaction : " + ' ; '.join(strrxns)
         if n_spectator_atoms > 0:
             # I know it's supposed to be spelled 'spectator', but it's fun to say 'speculator' :)
-            message += " ; Speculators (removed) : \x1b[91m%s\x1b[0m" % (' + '.join(['%s%s' % (str(j) if j>1 else '', i) for i, j in Counter(spectator_formulas).items()]))
+            message += " ; Speculators (removed) : \x1b[91m%s\x1b[0m" % (' + '.join(['%s%s' % (str(j) if j>1 else '', i) for i, j in list(Counter(spectator_formulas).items())]))
         logger.info(message, printlvl=2)
-        return zip(extract_groups, extract_charges, extract_mults)
+        return list(zip(extract_groups, extract_charges, extract_mults))
     else:
         logger.info("Unable to split reaction pathway into groups")
-        return zip([np.arange(m1.na)], [m1.charge], [m1.mult])
+        return list(zip([np.arange(m1.na)], [m1.charge], [m1.mult]))
 
 def analyze_path(xyz, nrg, cwd, xyz0=None, label="Reaction", draw=2):
     """
@@ -354,14 +354,14 @@ def analyze_path(xyz, nrg, cwd, xyz0=None, label="Reaction", draw=2):
         if len(formulaP) == 0:
             logger.error('How can I have reactants but no products?')
             raise RuntimeError
-        strrxn = 'Reaction: ' + ' + '.join(['%s%s' % (str(j) if j>1 else '', i) for i, j in Counter(formulaR).items()])
+        strrxn = 'Reaction: ' + ' + '.join(['%s%s' % (str(j) if j>1 else '', i) for i, j in list(Counter(formulaR).items())])
         strrxn += ' -> '
-        strrxn += ' + '.join(['%s%s' % (str(j) if j>1 else '', i) for i, j in Counter(formulaP).items()])
+        strrxn += ' + '.join(['%s%s' % (str(j) if j>1 else '', i) for i, j in list(Counter(formulaP).items())])
     else:
         strrxn = 'Reaction: None'
     if len(formulaS) > 0:
         strrxn += ', Speculators: '
-        strrxn += ' '.join(['%s%s' % (str(j) if j>1 else '', i) for i, j in Counter(formulaS).items()])
+        strrxn += ' '.join(['%s%s' % (str(j) if j>1 else '', i) for i, j in list(Counter(formulaS).items())])
     if status == 'correct':
         color = '\x1b[1;92m'
     elif status == 'incorrect':
@@ -558,7 +558,7 @@ def make_task(cmd, cwd, inputs=[], outputs=[], tag=None, calc=None, verbose=0, p
         outputs = [outputs]
     # Actually print the command to the output folder. :)
     with open(os.path.join(cwd, 'command.sh'), 'w') as f:
-        print >> f, cmd
+        print(cmd, file=f)
     if WQ != None:
         # Create and submit Work Queue Task object.
         task = work_queue.Task(cmd)
@@ -635,7 +635,7 @@ class Calculation(object):
         # write the location of this file to source.txt.
         if isinstance(initial, str) and self.home not in os.path.abspath(initial):
             with open(os.path.join(self.home, 'source.txt'), 'w') as f:
-                print >> f, os.path.abspath(initial)
+                print(os.path.abspath(initial), file=f)
         # Calculations have the ability to access their parent.
         self.parent = kwargs.pop('parent', None)
         # Set charge and multiplicity.
@@ -746,7 +746,7 @@ class Calculation(object):
         if self.read_only: to_disk = False
         if to_disk:
             with open(statpath, 'w') as f:
-                print >> f, statout
+                print(statout, file=f)
         # Print status to the terminal.
         if display:
             self.printStatus(ansi=ansi)
@@ -1174,199 +1174,199 @@ class FreezingString(Calculation):
                       self.home, inputs=["initial.xyz"], outputs=["freezing-string.log", "freezing-string.tar.bz2"], 
                       tag=self.name, calc=self, verbose=self.verbose)
 
-class GrowingString(Calculation):
-    """ 
-    Class representing a growing string calculation.  This calculation
-    is actually run in several steps so it has the following
-    structure:
-
-    ---GS:00---GS:01---GS:02---GS:03 (Converged)
-                 |       |       |
-                 |       |       |
-               TS:01   TS:02   TS:03
-    
-    Basically, the GS calculation is so long that it is run in
-    "chunks" of several string iterations (say, 30).  When the
-    perpendicular gradient falls below some threshold (looser than
-    convergence), transition state calculations are launched.  If a TS
-    calculation produces an IRC that goes back to the correct reactant
-    and product, the calculation is marked as "complete".  If the GS
-    calculation has too many "chunks", or if the perpendicular
-    gradient is no longer decreasing (i.e. it's stuck), the
-    calculation is terminated.
-    """
-    calctype = "GrowingString"
-
-    def __init__(self, initial, home, **kwargs):
-        """
-        Parameters
-        ----------
-        stability_analysis : bool
-            Whether to include stability analyses as a part of the calculation.
-            This significantly increases the cost but could help when the
-            potential energy surface is discontinuous.
-        """
-        # Dictionary of transition state calculations.
-        # These are launched from concluded growing string calculations.
-        self.TransitionStates = OrderedDict()
-        # Whether to include stability analyses as a part of the calculation.
-        self.stability_analysis = kwargs.pop("stability_analysis", False)
-        # Initialize base class.
-        super(GrowingString, self).__init__(initial, home, **kwargs)
-        self.printed = []
-
-    def one(self, ncalc):
-        """ 
-        Read calculation status from a growing string log file, 
-        and launch transition state calculation if necessary.
-        Returns an error if the transition state estimate doesn't exist.
-        """
-        # The path of the individual growing string calculation.
-        rdir = os.path.join(self.home, '%02i' % ncalc)
-        # Extract the growing string archive file.
-        extract_tar(os.path.join(rdir, 'growing-string.tar.bz2'), ['Vfile.txt', 'tsestimate.xyz', 'final-string.xyz', 'final-string.pop'])
-        # Large initial value, used in case there are no pgrads.
-        pgrads = []
-        # Number of iterations.
-        niter = 0
-        #-----
-        # One of the following options:
-        # maxiter  = This calculation reached the maximum number of iterations
-        # cnvgd    = Converged (the best result, but rare)
-        # failed   = Calculation quit with error message, cannot continue
-        # unknown  = Something that we didn't account for
-        gsstat = 'unknown'
-        # Error message if any.
-        errmsg = ''
-        # pgrad convergence tolerance
-        cvg_grad = 0.002
-        # A relaxed convergence tolerance 
-        # where we may launch a TS search
-        ts_grad = 0.02
-        # Expected path of growing string log file.
-        log = os.path.join(rdir, 'growing-string.log')
-        if os.path.exists(log):
-            if not os.path.exists(os.path.join(rdir, 'tsestimate.xyz')):
-                logger.info("%s does not have tsestimate.xyz" % rdir)
-                shutil.move(log, log+'.bak')
-                return [], "error", "no TS estimate", False
-            if not os.path.exists(os.path.join(rdir, 'final-string.xyz')):
-                self.parent.saveStatus('failed', message='Final string does not exist')
-                return [], "error", "no string", False
-        else:
-            return [], "new", "no log file", False
-        # Parse the log file.
-        for line in open(log):
-            if "MAX_PERP_GRAD_FOR_A_NODE" in line:
-                pgrads.append(float(line.split()[2]))
-                niter += 1
-                if pgrads[-1] < cvg_grad:
-                    gsstat = 'cnvgd'
-            if "Reached Maximum iterations, exiting" in line:
-                gsstat = 'maxiter'
-                break
-            if "You have finished the Growing String run" in line:
-                gsstat = 'cnvgd'
-                break
-            if "MAX reached in spline interpolation" in line:
-                gsstat = 'error'
-                errmsg = 'Spline interpolation error'
-        if ncalc not in self.printed:
-            logger.info("GrowingString   segment \x1b[94m%i\x1b[0m : %i cycles, pgrad = %.3f, status: %s" % (ncalc, len(pgrads), pgrads[-1], gsstat), printlvl=2)
-            self.printed.append(ncalc)
-        # If the growing string calculation meets these criteria, then launch the transition state search.
-        ts_launch = False
-        if gsstat == 'cnvgd' or (gsstat == 'maxiter' and pgrads[-1] < ts_grad):
-            if ncalc not in self.TransitionStates:
-                self.TransitionStates[ncalc] = TransitionState(os.path.join(rdir, 'tsestimate.xyz'), home=os.path.join(rdir, 'TS'), 
-                                                               initpath=os.path.join(rdir, 'final-string.xyz'), parent=self, 
-                                                               charge=self.charge, mult=self.mult, priority=self.priority+self.dprio+100, **self.kwargs)
-                self.TransitionStates[ncalc].launch()
-                ts_launch = True
-        return pgrads, gsstat, errmsg, ts_launch
-
-    def launch_(self):
-        """
-        Process growing string results and launch the calculation.
-        """
-        # At least one transition state converged to an IRC consistent with the reactant and product.
-        # If so, there is no reason to continue the growing string calculation.
-        if any([calc.status == 'correct' for calc in self.TransitionStates.values()]):
-            self.saveStatus('correct', message='Correct transition state found')
-            self.parent.saveStatus('complete', message='Correct transition state found')
-            return
-
-        ncalc = 0
-        pgrads = []
-        gsstat = 'new'
-        self.dprio = 0
-        while True:
-            # The number of growing string cycles increases for each segment in the following schedule:
-            # Set the calculation status based on the status of the parent pathway.
-            # This may be updated within any transition state calculation, that's why it's in the loop.
-            if self.parent.status == 'complete':
-                self.saveStatus('complete', message='Pathway complete')
-                return
-            if self.parent.status == 'failed':
-                self.saveStatus('failed', message='Pathway failed')
-                return
-            # The initial growing string iterations have the highest priority.  After 200 iterations it
-            # becomes quite a bit lower.
-            self.dprio = 100-(len(pgrads))
-            # Because this is calculation is organized into a series of segments, we loop
-            # over them and set the status based on the final segment.
-            if len(pgrads) > self.gsmax:
-                # There were too many growing string segments, and it's unlikely to ever finish
-                self.saveStatus('terminated', message='Too many growing string cycles (%i > %i)' % (len(pgrads), self.gsmax))
-                return
-            if not os.path.exists(os.path.join(self.home, '%02i' % ncalc)): break
-            pgrad_cyc, gsstat, errmsg, ts_launch = self.one(ncalc)
-            pgrads += pgrad_cyc
-            # If following the sequential path, the TS calculation will make us return.
-            # However, when the TS calculation is finished it should trigger this function again.
-            if ts_launch and (not self.ts_branch): return
-            # Break out of the loop if any calculation is empty.
-            if len(pgrad_cyc) == 0: break
-            ncalc += 1
-        
-        # Set the calculation status based on the status of the latest segment.
-        if gsstat in ['error', 'unknown']:
-            # Calculation has failed, or the parser encountered something it did not expect.
-            logger.info('Calculation %s status %s' % (self.name, gsstat))
-            self.saveStatus('failed')
-            return
-        elif gsstat == 'cnvgd':
-            # Growing string has converged.
-            self.saveStatus('converged')
-            return
-
-        if self.read_only: return
-        self.saveStatus('launch', message='%s from cycle %i' % ('Starting' if len(pgrads) == 0 else 'Continuing', len(pgrads)))
-        # At this point in the code, we will create a new growing string calculation.
-        if ncalc > 0:
-            # If previous calculations exist, then get the final string from the previous segment.
-            M = Molecule(os.path.join(self.home, '%02i' % (ncalc-1), 'final-string.xyz'))
-        else:
-            # If this is a new calculation, then create the initial string.
-            if isinstance(self.initial, Molecule):
-                M = deepcopy(self.initial)
-            else:
-                M = Molecule(self.initial)
-        
-        # Write the initial string to the folder where the calculation will actually be run.
-        nextd = os.path.join(self.home, '%02i' % ncalc)
-        if not os.path.exists(nextd): os.makedirs(nextd)
-        M.write(os.path.join(nextd, 'initial.xyz'))
-        
-        # The number of growing string cycles increases as a function of the segment number.
-        ncycles = {0:20, 1:30, 2:50, 3:100}
-
-        # Launch the task.
-        make_task("growing-string.py initial.xyz --method %s --basis \"%s\" --charge %i --mult %i --cycles %i --images %i %s &> growing-string.log" % 
-                  (self.methods[0], self.bases[0], self.charge, self.mult, ncycles.get(ncalc, 100), self.images, '--stab' if self.stability_analysis else ''), 
-                  nextd, inputs=["initial.xyz"], outputs=["growing-string.log", "growing-string.tar.bz2"], 
-                  tag=self.name, calc=self, verbose=self.verbose, priority=self.priority + self.dprio)
-
+#class GrowingString(Calculation):
+#    """ 
+#    Class representing a growing string calculation.  This calculation
+#    is actually run in several steps so it has the following
+#    structure:
+#
+#    ---GS:00---GS:01---GS:02---GS:03 (Converged)
+#                 |       |       |
+#                 |       |       |
+#               TS:01   TS:02   TS:03
+#    
+#    Basically, the GS calculation is so long that it is run in
+#    "chunks" of several string iterations (say, 30).  When the
+#    perpendicular gradient falls below some threshold (looser than
+#    convergence), transition state calculations are launched.  If a TS
+#    calculation produces an IRC that goes back to the correct reactant
+#    and product, the calculation is marked as "complete".  If the GS
+#    calculation has too many "chunks", or if the perpendicular
+#    gradient is no longer decreasing (i.e. it's stuck), the
+#    calculation is terminated.
+#    """
+#    calctype = "GrowingString"
+#
+#    def __init__(self, initial, home, **kwargs):
+#        """
+#        Parameters
+#        ----------
+#        stability_analysis : bool
+#            Whether to include stability analyses as a part of the calculation.
+#            This significantly increases the cost but could help when the
+#            potential energy surface is discontinuous.
+#        """
+#        # Dictionary of transition state calculations.
+#        # These are launched from concluded growing string calculations.
+#        self.TransitionStates = OrderedDict()
+#        # Whether to include stability analyses as a part of the calculation.
+#        self.stability_analysis = kwargs.pop("stability_analysis", False)
+#        # Initialize base class.
+#        super(GrowingString, self).__init__(initial, home, **kwargs)
+#        self.printed = []
+#
+#    def one(self, ncalc):
+#        """ 
+#        Read calculation status from a growing string log file, 
+#        and launch transition state calculation if necessary.
+#        Returns an error if the transition state estimate doesn't exist.
+#        """
+#        # The path of the individual growing string calculation.
+#        rdir = os.path.join(self.home, '%02i' % ncalc)
+#        # Extract the growing string archive file.
+#        extract_tar(os.path.join(rdir, 'growing-string.tar.bz2'), ['Vfile.txt', 'tsestimate.xyz', 'final-string.xyz', 'final-string.pop'])
+#        # Large initial value, used in case there are no pgrads.
+#        pgrads = []
+#        # Number of iterations.
+#        niter = 0
+#        #-----
+#        # One of the following options:
+#        # maxiter  = This calculation reached the maximum number of iterations
+#        # cnvgd    = Converged (the best result, but rare)
+#        # failed   = Calculation quit with error message, cannot continue
+#        # unknown  = Something that we didn't account for
+#        gsstat = 'unknown'
+#        # Error message if any.
+#        errmsg = ''
+#        # pgrad convergence tolerance
+#        cvg_grad = 0.002
+#        # A relaxed convergence tolerance 
+#        # where we may launch a TS search
+#        ts_grad = 0.02
+#        # Expected path of growing string log file.
+#        log = os.path.join(rdir, 'growing-string.log')
+#        if os.path.exists(log):
+#            if not os.path.exists(os.path.join(rdir, 'tsestimate.xyz')):
+#                logger.info("%s does not have tsestimate.xyz" % rdir)
+#                shutil.move(log, log+'.bak')
+#                return [], "error", "no TS estimate", False
+#            if not os.path.exists(os.path.join(rdir, 'final-string.xyz')):
+#                self.parent.saveStatus('failed', message='Final string does not exist')
+#                return [], "error", "no string", False
+#        else:
+#            return [], "new", "no log file", False
+#        # Parse the log file.
+#        for line in open(log):
+#            if "MAX_PERP_GRAD_FOR_A_NODE" in line:
+#                pgrads.append(float(line.split()[2]))
+#                niter += 1
+#                if pgrads[-1] < cvg_grad:
+#                    gsstat = 'cnvgd'
+#            if "Reached Maximum iterations, exiting" in line:
+#                gsstat = 'maxiter'
+#                break
+#            if "You have finished the Growing String run" in line:
+#                gsstat = 'cnvgd'
+#                break
+#            if "MAX reached in spline interpolation" in line:
+#                gsstat = 'error'
+#                errmsg = 'Spline interpolation error'
+#        if ncalc not in self.printed:
+#            logger.info("GrowingString   segment \x1b[94m%i\x1b[0m : %i cycles, pgrad = %.3f, status: %s" % (ncalc, len(pgrads), pgrads[-1], gsstat), printlvl=2)
+#            self.printed.append(ncalc)
+#        # If the growing string calculation meets these criteria, then launch the transition state search.
+#        ts_launch = False
+#        if gsstat == 'cnvgd' or (gsstat == 'maxiter' and pgrads[-1] < ts_grad):
+#            if ncalc not in self.TransitionStates:
+#                self.TransitionStates[ncalc] = TransitionState(os.path.join(rdir, 'tsestimate.xyz'), home=os.path.join(rdir, 'TS'), 
+#                                                               initpath=os.path.join(rdir, 'final-string.xyz'), parent=self, 
+#                                                               charge=self.charge, mult=self.mult, priority=self.priority+self.dprio+100, **self.kwargs)
+#                self.TransitionStates[ncalc].launch()
+#                ts_launch = True
+#        return pgrads, gsstat, errmsg, ts_launch
+#
+#    def launch_(self):
+#        """
+#        Process growing string results and launch the calculation.
+#        """
+#        # At least one transition state converged to an IRC consistent with the reactant and product.
+#        # If so, there is no reason to continue the growing string calculation.
+#        if any([calc.status == 'correct' for calc in list(self.TransitionStates.values())]):
+#            self.saveStatus('correct', message='Correct transition state found')
+#            self.parent.saveStatus('complete', message='Correct transition state found')
+#            return
+#
+#        ncalc = 0
+#        pgrads = []
+#        gsstat = 'new'
+#        self.dprio = 0
+#        while True:
+#            # The number of growing string cycles increases for each segment in the following schedule:
+#            # Set the calculation status based on the status of the parent pathway.
+#            # This may be updated within any transition state calculation, that's why it's in the loop.
+#            if self.parent.status == 'complete':
+#                self.saveStatus('complete', message='Pathway complete')
+#                return
+#            if self.parent.status == 'failed':
+#                self.saveStatus('failed', message='Pathway failed')
+#                return
+#            # The initial growing string iterations have the highest priority.  After 200 iterations it
+#            # becomes quite a bit lower.
+#            self.dprio = 100-(len(pgrads))
+#            # Because this is calculation is organized into a series of segments, we loop
+#            # over them and set the status based on the final segment.
+#            if len(pgrads) > self.gsmax:
+#                # There were too many growing string segments, and it's unlikely to ever finish
+#                self.saveStatus('terminated', message='Too many growing string cycles (%i > %i)' % (len(pgrads), self.gsmax))
+#                return
+#            if not os.path.exists(os.path.join(self.home, '%02i' % ncalc)): break
+#            pgrad_cyc, gsstat, errmsg, ts_launch = self.one(ncalc)
+#            pgrads += pgrad_cyc
+#            # If following the sequential path, the TS calculation will make us return.
+#            # However, when the TS calculation is finished it should trigger this function again.
+#            if ts_launch and (not self.ts_branch): return
+#            # Break out of the loop if any calculation is empty.
+#            if len(pgrad_cyc) == 0: break
+#            ncalc += 1
+#        
+#        # Set the calculation status based on the status of the latest segment.
+#        if gsstat in ['error', 'unknown']:
+#            # Calculation has failed, or the parser encountered something it did not expect.
+#            logger.info('Calculation %s status %s' % (self.name, gsstat))
+#            self.saveStatus('failed')
+#            return
+#        elif gsstat == 'cnvgd':
+#            # Growing string has converged.
+#            self.saveStatus('converged')
+#            return
+#
+#        if self.read_only: return
+#        self.saveStatus('launch', message='%s from cycle %i' % ('Starting' if len(pgrads) == 0 else 'Continuing', len(pgrads)))
+#        # At this point in the code, we will create a new growing string calculation.
+#        if ncalc > 0:
+#            # If previous calculations exist, then get the final string from the previous segment.
+#            M = Molecule(os.path.join(self.home, '%02i' % (ncalc-1), 'final-string.xyz'))
+#        else:
+#            # If this is a new calculation, then create the initial string.
+#            if isinstance(self.initial, Molecule):
+#                M = deepcopy(self.initial)
+#            else:
+#                M = Molecule(self.initial)
+#        
+#        # Write the initial string to the folder where the calculation will actually be run.
+#        nextd = os.path.join(self.home, '%02i' % ncalc)
+#        if not os.path.exists(nextd): os.makedirs(nextd)
+#        M.write(os.path.join(nextd, 'initial.xyz'))
+#        
+#        # The number of growing string cycles increases as a function of the segment number.
+#        ncycles = {0:20, 1:30, 2:50, 3:100}
+#
+#        # Launch the task.
+#        make_task("growing-string.py initial.xyz --method %s --basis \"%s\" --charge %i --mult %i --cycles %i --images %i %s &> growing-string.log" % 
+#                  (self.methods[0], self.bases[0], self.charge, self.mult, ncycles.get(ncalc, 100), self.images, '--stab' if self.stability_analysis else ''), 
+#                  nextd, inputs=["initial.xyz"], outputs=["growing-string.log", "growing-string.tar.bz2"], 
+#                  tag=self.name, calc=self, verbose=self.verbose, priority=self.priority + self.dprio)
+#
 
 class Interpolation(Calculation):
     """
@@ -1405,13 +1405,13 @@ class Pathway(Calculation):
     calctype = "Pathway"
 
     def countFragmentIDs(self):
-        return sum([calc.status == 'converged' for calc in self.FragmentIDs.values()]), len(self.FragmentIDs.values())
+        return sum([calc.status == 'converged' for calc in list(self.FragmentIDs.values())]), len(list(self.FragmentIDs.values()))
 
     def countFragmentOpts(self):
-        return sum([calc.status == 'converged' for calc in self.FragmentOpts.values()]), len(self.FragmentOpts.values())
+        return sum([calc.status == 'converged' for calc in list(self.FragmentOpts.values())]), len(list(self.FragmentOpts.values()))
 
     def countOptimizations(self):
-        return sum([calc.status == 'converged' for calc in self.Optimizations.values()]), len(self.Optimizations.values())
+        return sum([calc.status == 'converged' for calc in list(self.Optimizations.values())]), len(list(self.Optimizations.values()))
 
     def launch_(self):
         """
@@ -1437,12 +1437,12 @@ class Pathway(Calculation):
                 self.Optimizations = OrderedDict()
                 self.Optimizations[0] = Optimization(initial=self.M0[0], home=os.path.join(self.home, "opt-init"), parent=self, priority=self.priority+1000, **self.kwargs)
                 self.Optimizations[1] = Optimization(initial=self.M0[-1], home=os.path.join(self.home, "opt-final"), parent=self, priority=self.priority+1000, **self.kwargs)
-                for calc in self.Optimizations.values(): 
+                for calc in list(self.Optimizations.values()): 
                     calc.launch()
                 return
-            if (len(self.Optimizations) == 2) and all([calc.status == 'converged' for calc in self.Optimizations.values()]):
+            if (len(self.Optimizations) == 2) and all([calc.status == 'converged' for calc in list(self.Optimizations.values())]):
                 OptMols = OrderedDict()
-                for frm, calc in self.Optimizations.items():
+                for frm, calc in list(self.Optimizations.items()):
                     OptMols[frm] = Molecule(os.path.join(calc.home, 'optimize.xyz'), topframe=-1)
                     OptMols[frm].load_popxyz(os.path.join(calc.home, 'optimize.pop'))
                 # Catch the *specific case* that after reoptimizing the 
@@ -1459,7 +1459,7 @@ class Pathway(Calculation):
                 Joined.write(os.path.join(self.home, 'rejoined.xyz'))
                 Spaced.write(os.path.join(self.home, 'respaced.xyz'))
                 self.M1 = Spaced
-            elif (len(self.Optimizations) == 2) and any([calc.status == 'failed' for calc in self.Optimizations.values()]):
+            elif (len(self.Optimizations) == 2) and any([calc.status == 'failed' for calc in list(self.Optimizations.values())]):
                 self.saveStatus('failed', message='At least one endpoint optimization has failed')
                 return
             else:
@@ -1490,14 +1490,14 @@ class Pathway(Calculation):
         # Create growing string calculation.  These calculations are
         # run in segments and can be extended based on the status of
         # the last growing string calculation.
-        if not hasattr(self, 'GS'):
-            # With MPI, stability analysis is quite affordable so we'll enable it by default
-            self.GS = GrowingString(InterSpaced, home=os.path.join(self.home, 'GS'), 
-                                    parent=self, charge=self.charge, mult=self.mult, stability_analysis=True, priority=self.priority, **self.kwargs)
-            self.GS.launch()
-            # self.GSSA = GrowingString(InterSpaced, home=os.path.join(self.home, 'GSSA'), 
-            #                         parent=self, charge=self.charge, mult=self.mult, stability_analysis=True, priority=self.priority, **self.kwargs)
-            # self.GSSA.launch()
+        #if not hasattr(self, 'GS'):
+        #    # With MPI, stability analysis is quite affordable so we'll enable it by default
+        #    self.GS = GrowingString(InterSpaced, home=os.path.join(self.home, 'GS'), 
+        #                            parent=self, charge=self.charge, mult=self.mult, stability_analysis=True, priority=self.priority, **self.kwargs)
+        #    self.GS.launch()
+        #    # self.GSSA = GrowingString(InterSpaced, home=os.path.join(self.home, 'GSSA'), 
+        #    #                         parent=self, charge=self.charge, mult=self.mult, stability_analysis=True, priority=self.priority, **self.kwargs)
+        #    # self.GSSA.launch()
             
 class Trajectory(Calculation):
     """
@@ -1556,7 +1556,7 @@ class Trajectory(Calculation):
     def makeFragments(self):
         """ Create and launch fragment identifications. This code is called ONCE per trajectory"""
         self.FragmentIDs = OrderedDict()
-        self.frames = range(0, len(self.M), self.subsample)
+        self.frames = list(range(0, len(self.M), self.subsample))
         if (len(self.M)-1) not in self.frames:
             self.frames.append(len(self.M)-1)
         for frm in self.frames:
@@ -1583,12 +1583,12 @@ class Trajectory(Calculation):
             if validity != "invalid": 
                 FragIDs[frm]=(formulas, bondfactor)
         # Sort by bondfactor in descending order
-        FragIDs = OrderedDict(sorted(FragIDs.items(), key=lambda item: item[1][1], reverse = True))
+        FragIDs = OrderedDict(sorted(list(FragIDs.items()), key=lambda item: item[1][1], reverse = True))
         # Pick out frame with maximum bondfactor for fragment group
         self.optlist = []
         fraglist = []
         logger.info("Identifying frames for unique fragment sets with maximum bonding:")
-        for frm,frag in FragIDs.items():
+        for frm,frag in list(FragIDs.items()):
             if frag[0] not in fraglist:
                 logger.info("Frame: %d; Fragments: %s" % (frm, frag[0]))
                 self.optlist.append(frm)
@@ -1639,9 +1639,9 @@ class Trajectory(Calculation):
                     Gfj = Efj - entr[fj]*0.29815 + enth[fj]
                     DeltaE = Efj - Efi
                     self.DeltaG = Gfj - Gfi
-                    strrxn = ' + '.join(['%s%s' % (str(j) if j>1 else '', i) for i, j in Counter(formulas[fi].split()).items()])
+                    strrxn = ' + '.join(['%s%s' % (str(j) if j>1 else '', i) for i, j in list(Counter(formulas[fi].split()).items())])
                     strrxn += ' -> '
-                    strrxn += ' + '.join(['%s%s' % (str(j) if j>1 else '', i) for i, j in Counter(formulas[fj].split()).items()])
+                    strrxn += ' + '.join(['%s%s' % (str(j) if j>1 else '', i) for i, j in list(Counter(formulas[fj].split()).items())])
                     logger.info("=> Frame %s -> %s: Reaction %s; Delta-H (0K) = %.4f kcal/mol; Delta-G (STP) = %.4f kcal/mol" 
                                 % (fi, fj, strrxn, DeltaE, self.DeltaG))
 
@@ -1651,7 +1651,7 @@ class Trajectory(Calculation):
         # Create molecule object and set charge / multiplicity.
         # Create a list of frames separated by the stride and 
         # including the last frame.
-        self.frames = range(0, len(self.M), self.subsample)
+        self.frames = list(range(0, len(self.M), self.subsample))
         if (len(self.M)-1) not in self.frames:
             self.frames.append(len(self.M)-1)
         for frm in self.frames:
@@ -1710,21 +1710,21 @@ class Trajectory(Calculation):
             def ascii_encode_dict(data):
                 """ Convert Unicode strings in dictionary (e.g. JSON-loaded) to ascii. """
                 def ascii_encode(x):
-                    if isinstance(x, unicode):
+                    if isinstance(x, str):
                         return x.encode('ascii')
                     else:
                         return x
-                return OrderedDict(map(ascii_encode, pair) for pair in data.items())
+                return OrderedDict(list(map(ascii_encode, pair)) for pair in list(data.items()))
             ok = True
             PathInfo = json.load(open(os.path.join(self.pathwayFolder, 'path-info.txt')), object_hook=ascii_encode_dict)
-            for label, pathparams in PathInfo.items():
+            for label, pathparams in list(PathInfo.items()):
                 if not os.path.exists(os.path.join(pathparams['home'], 'spaced.xyz')):
                     ok = False
                     break
                 self.Pathways[label] = Pathway(os.path.join(pathparams['home'], 'spaced.xyz'), home=pathparams['home'], name=pathparams['name'], 
                                                charge=pathparams['charge'], mult=pathparams['mult'], parent=self, priority=self.priority, **self.kwargs)
             if ok:
-                for P in self.Pathways.values():
+                for P in list(self.Pathways.values()):
                     P.launch()
                 return
         # If the cached path information doesn't exist or something went wrong, then we determine all of the pathways.
@@ -1733,7 +1733,7 @@ class Trajectory(Calculation):
         # Create a Molecule object for each optimized .xyz file.
         # Note that topology is determined by the final frame
         OptMols = OrderedDict()
-        for frm, calc in self.Optimizations.items():
+        for frm, calc in list(self.Optimizations.items()):
             if calc.status == 'failed': continue
             OptMols[frm] = Molecule(os.path.join(calc.home, 'optimize.xyz'), topframe=-1)
             OptMols[frm].load_popxyz(os.path.join(calc.home, 'optimize.pop'))
@@ -1746,7 +1746,7 @@ class Trajectory(Calculation):
         # Each final pathway frame is the initial frame of a given catchment basin, starting from the 2nd one
         path_initial = []
         path_final = []
-        for fi, fj in zip(OptMols.keys()[:-1], OptMols.keys()[1:]):
+        for fi, fj in zip(list(OptMols.keys())[:-1], list(OptMols.keys())[1:]):
             if not self.Equal(OptMols[fi], OptMols[fj]):
                 # fi and fj mark the boundaries of a difference in catchment basin
                 path_initial.append(fi)
@@ -1794,7 +1794,7 @@ class Trajectory(Calculation):
             # Identify the atoms that reacted (i.e. remove spectators)
             # There is sometimes more than one reacting group if multiple concurrent reactions occur
             if self.spectators:
-                reacting_groups = [(range(OptMols[fi][-1].na), self.charge, self.mult)]
+                reacting_groups = [(list(range(OptMols[fi][-1].na)), self.charge, self.mult)]
             else:
                 reacting_groups = find_reacting_groups(OptMols[fi][-1], OptMols[fj][-1])
             for rgrp, (ratoms, rcharge, rmult) in enumerate(reacting_groups):
@@ -1816,20 +1816,20 @@ class Trajectory(Calculation):
                 self.Pathways[label].launch()
                 PathInfo[label] = OrderedDict([('home', pathhome), ('name', pathname), ('charge', rcharge), ('mult', rmult)])
         with open(os.path.join(self.pathwayFolder, 'path-info.txt'), 'w') as f: json.dump(PathInfo, f, ensure_ascii=True)
-        if len(self.Pathways.keys()) == 0:
+        if len(list(self.Pathways.keys())) == 0:
             logger.info("%s has no pathways after optimizations" % self.name, printlvl=2)
             self.saveStatus('complete', message='no pathways')
         # LPW Attempt to save some memory
         del OptMols
 
     def countFragmentIDs(self):
-        return sum([calc.status == 'converged' for calc in self.FragmentIDs.values()]), len(self.frames)
+        return sum([calc.status == 'converged' for calc in list(self.FragmentIDs.values())]), len(self.frames)
 
     def countFragmentOpts(self):
-        return sum([calc.status == 'converged' for calc in self.FragmentOpts.values()]), len(self.optlist)
+        return sum([calc.status == 'converged' for calc in list(self.FragmentOpts.values())]), len(self.optlist)
     
     def countOptimizations(self):
-        return sum([calc.status == 'converged' for calc in self.Optimizations.values()]), len(self.frames)
+        return sum([calc.status == 'converged' for calc in list(self.Optimizations.values())]), len(self.frames)
 
     def launchOptimizations(self):
         # Create geometry optimizations if we haven't done so already.
@@ -1840,12 +1840,12 @@ class Trajectory(Calculation):
         # created, this method will no longer be called so we don't
         # need to cycle through again.
         else:
-            for calc in self.Optimizations.values():
+            for calc in list(self.Optimizations.values()):
                 if os.path.exists(os.path.join(calc.home, 'optimize.xyz')):
                     complete, total = self.countOptimizations()
                     calc.saveStatus('converged', display=(self.verbose>=2), to_disk=False, message='%i/%i complete' % (complete+1, total))
     
-        if (len(self.Optimizations) == len(self.frames)) and all([calc.status in ['converged', 'failed'] for calc in self.Optimizations.values()]):
+        if (len(self.Optimizations) == len(self.frames)) and all([calc.status in ['converged', 'failed'] for calc in list(self.Optimizations.values())]):
             if not hasattr(self, 'Pathways'):
                 self.makePathways()
 
@@ -1880,22 +1880,22 @@ class Trajectory(Calculation):
             if not hasattr(self, 'FragmentIDs'):
                 self.makeFragments()
             else:
-                for calc in self.FragmentIDs.values():
+                for calc in list(self.FragmentIDs.values()):
                     if os.path.exists(os.path.join(calc.home, 'fragmentid.txt')):
                         complete, total = self.countFragmentIDs()
                         calc.saveStatus('converged', display=(self.verbose>=2), to_disk=False, message='%i/%i complete' % (complete+1, total))
             # Optimize fragments if we haven't done so already
-            if (len(self.FragmentIDs) == len(self.frames)) and all([calc.status in ['converged', 'failed'] for calc in self.FragmentIDs.values()]):
+            if (len(self.FragmentIDs) == len(self.frames)) and all([calc.status in ['converged', 'failed'] for calc in list(self.FragmentIDs.values())]):
                 if not hasattr(self, 'FragmentOpts'):
                     self.makeFragOpts()
                 else:
-                    for calc in self.FragmentOpts.values():
+                    for calc in list(self.FragmentOpts.values()):
                         if os.path.exists(os.path.join(calc.home, 'fragmentopt.txt')):
                             complete, total = self.countFragmentOpts()
                             calc.saveStatus('converged', display=(self.verbose>=2), to_disk=False, message='%i/%i complete' % (complete+1, total))
     
-            if (len(self.FragmentIDs) == len(self.frames)) and all([calc.status in ['converged', 'failed'] for calc in self.FragmentIDs.values()]):
-                if (len(self.FragmentOpts) == len(self.optlist)) and all([calc.status in ['converged', 'failed'] for calc in self.FragmentOpts.values()]):        
+            if (len(self.FragmentIDs) == len(self.frames)) and all([calc.status in ['converged', 'failed'] for calc in list(self.FragmentIDs.values())]):
+                if (len(self.FragmentOpts) == len(self.optlist)) and all([calc.status in ['converged', 'failed'] for calc in list(self.FragmentOpts.values())]):        
                     # Calculate Delta-G's of the reaction from fragments if we haven't done so already
                     if not hasattr(self, 'DeltaG'):
                         self.calcDeltaGs()

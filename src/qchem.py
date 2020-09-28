@@ -10,13 +10,13 @@ a Molecule object.
 Also contains a number of functions to wrap around TS/IRC calculations and
 make the results easier to use.
 """
-
+from __future__ import print_function
 import os, sys, shutil, glob
 import traceback
 import time
 import numpy as np
-from molecule import Molecule, Elements, arc
-from nifty import _exec, monotonic_decreasing
+from .molecule import Molecule, Elements, arc
+from .nifty import _exec, monotonic_decreasing
 from collections import defaultdict, OrderedDict
 from copy import deepcopy
 
@@ -261,27 +261,26 @@ def prepare_template(docstring, fout, chg, mult, method, basis, epsilon=None, mo
     """
     basisname, basissect, ecpname, ecpsect = get_basis(basis, molecule)
     # Write Q-Chem template file.
-    with open(fout,'w') as f: print >> f, \
-         docstring.format(chg=chg, mult=mult, method=method, pcm=('\nsolvent_method      cosmo' if epsilon is not None else ''), basis=(basisname + '%s' % (('\necp                 %s' % ecpname) if ecpname != None else '')))
+    with open(fout,'w') as f: print(docstring.format(chg=chg, mult=mult, method=method, pcm=('\nsolvent_method      cosmo' if epsilon is not None else ''), basis=(basisname + '%s' % (('\necp                 %s' % ecpname) if ecpname != None else ''))), file=f)
     # Print general basis and ECP sections to the Q-Chem template file.
     if epsilon is not None:
         with open(fout,'a') as f:
-            print >> f
-            print >> f, '$solvent'
-            print >> f, 'dielectric %f' % epsilon
-            print >> f, '$end'
+            print(file=f)
+            print('$solvent', file=f)
+            print('dielectric %f' % epsilon, file=f)
+            print('$end', file=f)
     if basisname == 'gen':
         with open(fout,'a') as f:
-            print >> f
-            print >> f, '$basis'
-            print >> f, '\n'.join(basissect)
-            print >> f, '$end'
+            print(file=f)
+            print('$basis', file=f)
+            print('\n'.join(basissect), file=f)
+            print('$end', file=f)
     if ecpname == 'gen':
         with open(fout,'a') as f:
-            print >> f
-            print >> f, '$ecp'
-            print >> f, '\n'.join(ecpsect)
-            print >> f, '$end'
+            print(file=f)
+            print('$ecp', file=f)
+            print('\n'.join(ecpsect), file=f)
+            print('$end', file=f)
 
 class QChem(object):
     """
@@ -358,7 +357,7 @@ class QChem(object):
         self.fin = fin
         # Molecule object from loading the input file.
         self.M = Molecule(fin, ftype)
-        if 'elem' not in self.M.Data.keys():
+        if 'elem' not in list(self.M.Data.keys()):
             raise RuntimeError('Input file contains no atoms')
         # Q-Chem input file that will be written for each Q-Chem execution.
         # If the original input file happens to also be a Q-Chem input file,
@@ -377,7 +376,7 @@ class QChem(object):
         # Whether a Hessian calculation has been done.
         self.haveH = 0
         # Set Q-Chem calculation options ($rem variables).
-        if 'qcrems' not in self.M.Data.keys():
+        if 'qcrems' not in list(self.M.Data.keys()):
             if method == None or basis == None or charge == None or mult == None:
                 raise RuntimeError('Must provide charge/mult/method/basis!')
             # Print a Q-Chem template file.
@@ -447,7 +446,7 @@ class QChem(object):
         if isinstance(self.readsave, str):
             if not os.path.isdir(self.readsave):
                 raise RuntimeError('Tried to initialize Q-Chem reading from a save folder but does not exist')
-	    if self.readsave == self.qcdsav: pass
+            if self.readsave == self.qcdsav: pass
             elif os.path.exists(self.qcdsav):
                 shutil.rmtree(self.qcdsav)
                 shutil.copytree(self.readsave, self.qcdsav)
@@ -478,7 +477,7 @@ class QChem(object):
         # If doing stability analysis, loosen SCF convergence tolerance by 1.
         # This is a bootleg solution to our workflow hanging indefinitely
         # when Q-Chem crashes.
-        if 'stability_analysis' in rems.keys():
+        if 'stability_analysis' in list(rems.keys()):
             rems['scf_convergence'] -= 2
         # Create copy of stored Molecule object, update
         # Q-Chem rem variables and write Q-Chem input file.
@@ -497,8 +496,7 @@ class QChem(object):
         reached will not trigger a parser error.
         """
         try:
-            return Molecule(self.qcout, errok=erroks[self.jobtype.lower()] +
-                            ['SCF failed to converge', 'Maximum optimization cycles reached'])
+            return Molecule(self.qcout, errok=erroks[self.jobtype.lower()] + ['SCF failed to converge', 'Maximum optimization cycles reached'])
         except RuntimeError:
             tarexit.include=['*']
             tarexit(1)
@@ -515,15 +513,15 @@ class QChem(object):
         (outer wrapper functions should do this).
         """
         if debug:
-            print "Calling Q-Chem with jobtype", self.jobtype
+            print("Calling Q-Chem with jobtype", self.jobtype)
             for line in open(self.qcin).readlines():
-                print line,
+                print(line, end=' ')
 
         # Figure out whether to use OpenMP or MPI.
         mode = "openmp"
         M1 = Molecule(self.qcin)
         for qcrem in M1.qcrems:
-            for key in qcrem.keys():
+            for key in list(qcrem.keys()):
                 if key == 'stability_analysis' and qcrem[key].lower() == 'true':
                     mode = "mpi"
                 if key == 'jobtype' and qcrem[key].lower() == 'freq':
@@ -610,7 +608,7 @@ class QChem(object):
         # I've run into a lot of TCP socket errors and OpenMP segfaults on Blue Waters.
         for line in open(self.qcerr):
             if 'Unable to open a TCP socket for out-of-band communications' in line:
-                with open(self.qcerr, 'a') as f: print >> f, 'TCP socket failure :('
+                with open(self.qcerr, 'a') as f: print('TCP socket failure :(', file=f)
                 tarexit.include=['*']
                 tarexit(1)
         # Note that we do NOT copy qcdir to qcdsav here, because we don't know whether the calculation is good.
@@ -642,13 +640,13 @@ class QChem(object):
             self.coreguess = True
             self.remscf['scf_algorithm'] = 'diis'
         if attempt in [2, 5]:
-            print "RCA..",
+            print("RCA..", end=' ')
             self.readguess = False
             self.coreguess = False
             self.remscf['scf_algorithm'] = 'rca_diis'
             self.remscf['thresh_rca_switch'] = 4
         if attempt in [3, 6]:
-            print "GDM..",
+            print("GDM..", end=' ')
             self.readguess = True
             self.coreguess = True
             self.remscf['scf_algorithm'] = 'diis_gdm'
@@ -657,7 +655,7 @@ class QChem(object):
             self.remscf['scf_convergence'] = 8
         else:
             if attempt == 4:
-                print "Relax convergence criterion..",
+                print("Relax convergence criterion..", end=' ')
             self.remscf['scf_convergence'] = 6
         # Set SCF max number of cycles.
         if attempt > 1:
@@ -796,12 +794,12 @@ class QChem(object):
             if stab2:
                 self.stable = True
                 if self.nstab > 1:
-                    print "HF/KS stable %s" % (("at attempt %i" % self.nstab) if self.nstab > 1 else "")
+                    print("HF/KS stable %s" % (("at attempt %i" % self.nstab) if self.nstab > 1 else ""))
                 break
             else:
                 self.nstab += 1
             if self.nstab > maxstab:
-                print "Warning: Stability analysis could not find HF/KS stable state"
+                print("Warning: Stability analysis could not find HF/KS stable state")
                 break
 
     def force(self):
@@ -821,16 +819,16 @@ class QChem(object):
         """ Write vibrational data to an easy-to-use text file. """
         M = self.load_qcout()
         with open(fout, 'w') as f:
-            print >> f, vib_top
-            print >> f, M.na
-            print >> f, "Coordinates and vibrations calculated from %s" % self.qcout
+            print(vib_top, file=f)
+            print(M.na, file=f)
+            print("Coordinates and vibrations calculated from %s" % self.qcout, file=f)
             for e, i in zip(M.elem, M.xyzs[0]):
-                print >> f, "%2s % 8.3f % 8.3f % 8.3f" % (e, i[0], i[1], i[2])
+                print("%2s % 8.3f % 8.3f % 8.3f" % (e, i[0], i[1], i[2]), file=f)
             for frq, mode in zip(M.freqs, M.modes):
-                print >> f
-                print >> f, "%.4f" % frq
+                print(file=f)
+                print("%.4f" % frq, file=f)
                 for i in mode:
-                    print >> f, "% 8.3f % 8.3f % 8.3f" % (i[0], i[1], i[2])
+                    print("% 8.3f % 8.3f % 8.3f" % (i[0], i[1], i[2]), file=f)
 
     def opt(self):
         """
@@ -1065,7 +1063,7 @@ def QChemTS(xyz, charge, mult, method, basis, initial_stable=True, final_stable=
     """
     QCTS = QChem(xyz, charge=charge, mult=mult, method=method, basis=basis, qcin=qcin)
     if initial_stable:
-        print "Initial HF/KS stability analysis."
+        print("Initial HF/KS stability analysis.")
         QCTS.make_stable()
         
     #----
@@ -1075,31 +1073,31 @@ def QChemTS(xyz, charge, mult, method, basis, initial_stable=True, final_stable=
     # 3) Run stability analysis calculation on TS
     #----
     while True:
-        print "Frequency calculation."
+        print("Frequency calculation.")
         QCTS.freq()
-        print "Transition state optimization."
+        print("Transition state optimization.")
         QCTS.ts()
         # If we're not worrying about stability, then quit right now.
         if not final_stable: 
             if finalize:
                 # Run frequency calculation to start off IRC!
-                print "Final frequency calculation."
+                print("Final frequency calculation.")
                 QCTS.freq()
                 if vout != None: QCTS.write_vdata(vout)
             break
-        print "Ensuring HF/KS stability of optimized structure."
+        print("Ensuring HF/KS stability of optimized structure.")
         QCTS.make_stable()
         if QCTS.nstab == 1:
             if finalize:
                 # Run frequency calculation to start off IRC!
-                print "HF/KS stable; final frequency calculation."
+                print("HF/KS stable; final frequency calculation.")
                 QCTS.freq()
                 if vout != None: QCTS.write_vdata(vout)
             else:
-                print "HF/KS stable"
+                print("HF/KS stable")
             break
         else:
-            print "HF/KS unstable, redoing transition state."
+            print("HF/KS unstable, redoing transition state.")
     return QCTS
 
 def ProcessIRC(IRCData, xyz0=None):
@@ -1133,7 +1131,7 @@ def ProcessIRC(IRCData, xyz0=None):
         S = Molecule(xyz0, ftype='xyz')
         RMSD1 = GetRMSD(S, 0, IRCData['X'][0]) + GetRMSD(S, -1, IRCData['X'][-1])
         RMSD2 = GetRMSD(S, 0, IRCData['X'][-1]) + GetRMSD(S, -1, IRCData['X'][0])
-        print "IRC RMSD to initial path endpoints (fwd, bkwd) = %6.3f %6.3f" % (RMSD1, RMSD2)
+        print("IRC RMSD to initial path endpoints (fwd, bkwd) = %6.3f %6.3f" % (RMSD1, RMSD2))
         fwd = (RMSD1 < RMSD2)
         M = S[0]
     else:
@@ -1212,9 +1210,9 @@ def QChemIRC(xyz, charge, mult, method, basis, qcdir, qcin='qcirc.in', xyz0=None
         msg.append("IRC calculation with displacement tolerance %i." % tol)
         # If IRC fails with something like "Bad initial gradient", then quit immediately.
         if not all(['Ok' in i for i in [IRCOut['MFwd'], IRCOut['MBak']]]):
-            print "\x1b[1;91mIRC Failure :(\x1b[0m"
-            print "Forward direction: %s" % IRCOut['MFwd']
-            print "Backward direction: %s" % IRCOut['MBak']
+            print("\x1b[1;91mIRC Failure :(\x1b[0m")
+            print("Forward direction: %s" % IRCOut['MFwd'])
+            print("Backward direction: %s" % IRCOut['MBak'])
             tarexit()
         else:
             msg.append("Forward direction: %s" % IRCOut['MFwd'])
@@ -1231,7 +1229,7 @@ def QChemIRC(xyz, charge, mult, method, basis, qcdir, qcin='qcirc.in', xyz0=None
         else: return 11
 
     tol = 1000
-    print "Intrinsic Reaction Coordinate (IRC) calculation."
+    print("Intrinsic Reaction Coordinate (IRC) calculation.")
     while True:
         # The IRC calculation has a funny way of terminating before
         # actually reaching the bottom of the hill, so we tighten the
@@ -1239,16 +1237,16 @@ def QChemIRC(xyz, charge, mult, method, basis, qcdir, qcin='qcirc.in', xyz0=None
         # drops below zero, give up.
         IRCOut, msg = IRCOne(tol)
         if min(IRCOut['LFwd'], IRCOut['LBak']) < min_irc_steps(tol):
-            tol /= 2
-            print "IRC segments are too short - tightening the tolerance (%i)" % tol
+            tol //= 2
+            print("IRC segments are too short - tightening the tolerance (%i)" % tol)
             if tol < 10: 
                 for line in msg:
-                    print line
-                print "\x1b[1;91mIRC Failure: Segments are too short\x1b[0m"
+                    print(line)
+                print("\x1b[1;91mIRC Failure: Segments are too short\x1b[0m")
                 tarexit()
         else:
             for line in msg:
-                print line
+                print(line)
             break
     return ProcessIRC(IRCOut, xyz0)
 
@@ -1284,7 +1282,7 @@ def SpaceIRC(M, E, RMSD=True):
     dx = 0.05 
     npts = int(max(ArcMolCumul)/dx)
     if npts == 0: 
-        print "\x1b[91mFailure: Path length is < %f Angstrom\x1b[0m" % dx
+        print("\x1b[91mFailure: Path length is < %f Angstrom\x1b[0m" % dx)
         tarexit()
     ArcMolEqual = np.linspace(0, max(ArcMolCumul), npts)
     xyzold = np.array(M.xyzs)
@@ -1337,7 +1335,7 @@ def SpaceIRC2(M, E, RMSD=True, pause=0, sweep=0, num=0):
         dx = 0.05 
         npts = int(max(ArcMolCumul)/dx)
         if npts == 0: 
-            print "\x1b[91mFailure: Path length is < %f Angstrom\x1b[0m" % dx
+            print("\x1b[91mFailure: Path length is < %f Angstrom\x1b[0m" % dx)
             tarexit()
         ArcMolEqual = np.linspace(0, max(ArcMolCumul), npts)
         xyzold = np.array(M_.xyzs)
@@ -1365,7 +1363,7 @@ def SpaceIRC2(M, E, RMSD=True, pause=0, sweep=0, num=0):
         M1 += M2[0]
 
     if len(M2) < sweep or len(M1) < sweep:
-        print "Warning: Sweep is longer than one piece of the IRC"
+        print("Warning: Sweep is longer than one piece of the IRC")
     vib = M2[:sweep/2+1] + M2[:sweep/2+1][::-1] + M1[-sweep/2:][::-1] + M1[-sweep/2:]
     for i in range(num):
         M1 += vib

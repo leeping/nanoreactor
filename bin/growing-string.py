@@ -6,7 +6,7 @@ growing-string.py
 Starting from an initial .xyz file with an initial pathway
 perform a growing string calculation.
 """
-
+from __future__ import print_function
 from nanoreactor.molecule import Molecule
 from nanoreactor.qchem import tarexit, prepare_template, qcrem_default
 from nanoreactor.nifty import _exec
@@ -93,9 +93,9 @@ def main():
     # Note that cycles are "throttled" to 100, because larger numbers will hit queue time limits and we lose all the work :(
     # with open("qcoptions.in",'w') as f: print >> f, qcoptions.format(method=args.method, basis=args.basis)
     prepare_template(qcrem_default, "qcoptions.in", args.charge, args.mult, args.method, args.basis, epsilon=args.epsilon, molecule=M)
-    with open("inpfile",'w') as f: print >> f, inpfile.format(xyz=args.initial, path=os.getcwd()+'/', 
+    with open("inpfile",'w') as f: print(inpfile.format(xyz=args.initial, path=os.getcwd()+'/', 
                                                               chg=args.charge, mult=args.mult, cyc=min(100, args.cycles),
-                                                              npts=len(M), images=args.images)
+                                                              npts=len(M), images=args.images), file=f)
 
     # Bootleg file-based interface for triggering stability analysis.
     if args.stab: _exec("touch Do_Stability_Analysis", print_command=False)
