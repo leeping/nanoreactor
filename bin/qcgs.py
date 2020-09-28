@@ -20,7 +20,7 @@ string iteration.
 Also, this script ensures that every image in the growing string calculation
 uses the Q-Chem 
 """
-
+from __future__ import print_function
 import os, sys
 from nanoreactor.qchem import QChem, tarexit
 tarexit.tarfnm = "growing-string.tar.bz2"
@@ -34,7 +34,7 @@ calcnum = -1
 if os.path.exists(calcfnm):
     calcnum = int(open(calcfnm).readlines()[0].strip())
 calcnum += 1
-with open(calcfnm,'w') as f: print >> f, calcnum
+with open(calcfnm,'w') as f: print(calcnum, file=f)
 
 # File that records how many iterations ago we had to do a stability
 # analysis.  "# of days since last accident" kind of thang.
@@ -52,6 +52,6 @@ QC.force()
 # If unstable, then reset accident counter to zero.
 with open(stabfnm, 'w') as f:
     if QC.nstab > 1:
-        print >> f, 0
+        print(0, file=f)
     else:
-        print >> f, stablast+1
+        print(stablast+1, file=f)

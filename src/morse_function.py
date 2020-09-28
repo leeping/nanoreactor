@@ -1,10 +1,10 @@
 """ Calculate the pairwise Morse potential between all pairs of atoms in a frame.  Used as an energy function to prevent atom clashes. """
-
+from __future__ import print_function, division
 import os, sys
 import itertools
 import numpy as np
 from collections import namedtuple, OrderedDict 
-from molecule import Molecule
+from .molecule import Molecule
 
 ## The periodic table with atomic masses
 AtomicMass = OrderedDict([('H', 1.0079), ('He', 4.0026), 
@@ -23,7 +23,7 @@ AtomicMass = OrderedDict([('H', 1.0079), ('He', 4.0026),
                           ('Lr', 262), ('Rf', 261), ('Db', 262), ('Sg', 266), ('Bh', 264), ('Hs', 277), ('Mt', 268)])
 
 ## A list of the elements.
-Elements = AtomicMass.keys()
+Elements = list(AtomicMass.keys())
 
 ## Covalent radii from Cordero et al. 'Covalent radii revisited' Dalton Transactions 2008, 2832-2838.
 CovalentRadii = OrderedDict([(j, [0.31, 0.28,
@@ -271,12 +271,12 @@ def uffbond(i,j,bo):
     chii = UFFElements[i].chi
     chij = UFFElements[j].chi
     rbo = -1 * l * (ri + rj) * np.log(bo)
-    ren = ri*rj*(np.sqrt(chii)-np.sqrt(chij))**2/(chii*ri+chij*rj)
+    ren = ri*rj*(np.sqrt(chii)-np.sqrt(chij))**2/(chii*ri+chij*rj) #Division here needs to be reviewed
     # print "Symbols = %s %s Base bond length = %.4f Bond Order Correction = %.4f Electronegativity Correction = %.4f" % (i, j, ri+rj, rbo, ren)
     rij = ri + rj + rbo - ren
-    kij = b * UFFElements[i].z * UFFElements[j].z / rij**3
+    kij = b * UFFElements[i].z * UFFElements[j].z / rij**3 #Division here needs to be reviewed 
     # print "rij = %.4e nm kij = %.4e kJ/mol/nm**2" % (rij/10,kij*418.4)
-    return rij/10,kij*418.4
+    return rij/10,kij*418.4 #Division here needs to be reviewed 
 
 def uffangle(i,j,k,boij,bojk,theta):
     """
@@ -297,7 +297,7 @@ def uffangle(i,j,k,boij,bojk,theta):
     rik = sqrt(rij**2 + rjk**2 - 2*rij*rjk*np.cos(theta))
     zi = UFFElements[i].z
     zk = UFFElements[k].z
-    kijk = b * zi * zk * (3*rij*rjk*(1-np.cos(theta)**2) - rik**2*np.cos(theta)) / rik**5
+    kijk = b * zi * zk * (3*rij*rjk*(1-np.cos(theta)**2) - rik**2*np.cos(theta)) / rik**5 #Division here needs to be reviewed 
     # print "theta = %.4f nm kij = %.4e kJ/mol/rad**2" % (theta*180./pi,kijk*4.184)
     return theta*180./np.pi, kijk*4.184
 
@@ -337,7 +337,7 @@ for i, ei in enumerate(Elements[:96]):
         # Finally use the last ditch arbitrary guess of 100.0 kJ/mol
         else:
             Dij = 100.0
-        a = np.sqrt(k/(2*Dij))
+        a = np.sqrt(k/(2*Dij)) #Division here needs to be reviewed 
         MorseParams[(ei, ej)] = (r0, Dij, a)
         # if i < 18 and j < 18:
         #     print ei, ej, r0, Dij, a, Dij*(1.0 - np.exp(-a*-r0))**2
@@ -378,8 +378,8 @@ def PairwiseMorse(M, dzero=True, repulsive=False):
         for ij, rij in zip(apairs, R):
             i = ij[0]
             j = ij[1]
-            xij = (M.xyzs[sn][i] - M.xyzs[sn][j]) / 10
-            grd = 2*D[iij]*(1.0-mexp[iij])*mexp[iij]*A[iij]*xij/rij
+            xij = (M.xyzs[sn][i] - M.xyzs[sn][j]) / 10 #Division here needs to be reviewed 
+            grd = 2*D[iij]*(1.0-mexp[iij])*mexp[iij]*A[iij]*xij/rij #Division here needs to be reviewed 
             grd *= (1 if not repulsive else rij < R0[iij])
             Gradient[i, :] += grd
             Gradient[j, :] -= grd
@@ -391,7 +391,7 @@ def PairwiseMorse(M, dzero=True, repulsive=False):
         else:
             Energies.append(np.sum(D*((1.0-mexp)**2 - 1.0)))
         Gradients.append(Gradient)
-    print Energies
+    print(Energies)
     return Energies, Gradients
 
 def PairwiseMorse2(M):
@@ -431,7 +431,7 @@ def PairwiseMorse2(M):
             j = apairs[iij][1]
             rij = R[iij]
             xij = X[iij] # xj - xi
-            grdj = GrdFac[iij]*xij/rij
+            grdj = GrdFac[iij]*xij/rij #Division here needs to be reviewed 
             Gradient[iij, i, :] = -grdj
             Gradient[iij, j, :] = +grdj
         Gradients.append(Gradient)

@@ -54,7 +54,7 @@ def process_spins(trajectory_fnms):
         M = Molecule(trajectory_fnms[i])
 
         # Read in the charge and spin on the whole system.
-        srch  = lambda s : np.array([float(re.search('(?<=%s )[-+]?[0-9]*\.?[0-9]*([eEdD][-+]?[0-9]+)?' % s, c).group(0)) for c in M.comms if all([k in c for k in 'charge', 'sz'])])
+        srch  = lambda s : np.array([float(re.search('(?<=%s )[-+]?[0-9]*\.?[0-9]*([eEdD][-+]?[0-9]+)?' % s, c).group(0)) for c in M.comms if all([k in c for k in ('charge', 'sz')])])
         Chgs  = srch('charge') # An array of the net charge.
         SpnZs = srch('sz')    # An array of the net Z-spin.
 
@@ -110,7 +110,7 @@ def main():
     if args.small_first:
         order = list(np.argsort([int(open(fnm).next().split()[0]) for fnm in trajectory_fnms]))
     else:
-        order = range(len(trajectory_fnms))
+        order = list(range(len(trajectory_fnms)))
     # Execute calculations.
     Trajectories = OrderedDict()
     t0 = time.time()
