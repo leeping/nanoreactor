@@ -1,5 +1,5 @@
 #!/home/leeping/local/bin/python
-
+from __future__ import print_function
 import os
 import argparse
 
@@ -49,5 +49,5 @@ cd $working
 learn_fork
 """
 
-with open('qlearn.sh','w') as f: print >> f, fout.format(jobname=jobname, cwd=cwd, hrt=hrt, queue=queue)
+with open('qlearn.sh','w') as f: print(fout.format(jobname=jobname, cwd=cwd, hrt=hrt, queue=queue), file=f)
 os.system('qsub qlearn.sh')

@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+from __future__ import print_function
 import warnings
 warnings.simplefilter('ignore')
 from nanoreactor.molecule import *
@@ -34,7 +35,7 @@ def monotonic(arr, start, end):
 
 def main():
     if len(sys.argv) < 3:
-        print "To run this script: %s [qchem IRC output] [initial xyz path]" % __file__
+        print("To run this script: %s [qchem IRC output] [initial xyz path]" % __file__)
         sys.exit()
 
     QCIRC = Molecule(sys.argv[1], errok=['SCF failed to converge', 'Maximum optimization cycles reached'])
@@ -47,10 +48,10 @@ def main():
     BakQ = QCIRC.Irc['BakQ']
     FwdSz = QCIRC.Irc['FwdSz']
     BakSz = QCIRC.Irc['BakSz']
-    print "Length of the IRC segments        = %6i %6i" % (len(FwdX), len(BakX))
+    print("Length of the IRC segments        = %6i %6i" % (len(FwdX), len(BakX)))
     RMSD1 = GetRMSD(M, 0, FwdX[-1]) + GetRMSD(M, -1, BakX[-1])
     RMSD2 = GetRMSD(M, 0, BakX[-1]) + GetRMSD(M, -1, FwdX[-1])
-    print "IRC RMSD to endpoints (fwd, bkwd) = %6.3f %6.3f" % (RMSD1, RMSD2)
+    print("IRC RMSD to endpoints (fwd, bkwd) = %6.3f %6.3f" % (RMSD1, RMSD2))
     StrE = [float(c.split("=")[-1].split()[0]) for c in M.comms]
     if RMSD1 < RMSD2:
         O = M[0]
@@ -84,8 +85,8 @@ def main():
         M.comms[len(BakX)-1] += " (Transition State)"
         M.align_center()
         M.write(os.path.splitext(sys.argv[2])[0] + ".irc.xyz")
-    print "  IRC  reaction energy, barrier (kcal/mol)   = % 8.3f % 8.3f" % (E[-1] - E[0], max(E))
-    print "String reaction energy, barrier (kcal/mol)   = % 8.3f % 8.3f" % (StrE[-1] - StrE[0], max(StrE))
+    print("  IRC  reaction energy, barrier (kcal/mol)   = % 8.3f % 8.3f" % (E[-1] - E[0], max(E)))
+    print("String reaction energy, barrier (kcal/mol)   = % 8.3f % 8.3f" % (StrE[-1] - StrE[0], max(StrE)))
     np.savetxt('charges.irc.txt', np.array(Q), fmt='% .5f')
     np.savetxt('spins.irc.txt', np.array(Sz), fmt='% .5f')
 

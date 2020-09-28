@@ -13,7 +13,7 @@ TS results are saved to ts.xyz (coordinates) and Q-Chem output files named qcts*
 IRC results are saved to file as irc.xyz (coordinates), irc.pop (charge and spin populations), 
 irc.nrg (arc length vs. energy) and irc_spaced.xyz (equally spaced coordinates).
 """
-
+from __future__ import print_function
 from nanoreactor.molecule import Molecule, arc
 from nanoreactor.qchem import QChem, QChemTS, QChemIRC, SpaceIRC, tarexit
 from nanoreactor.nifty import _exec
@@ -55,7 +55,7 @@ def main():
                     basis=args.bases[0], finalize=(len(args.methods)==1), qcin='qcts1.in', vout='irc_transition.vib')
     QCTS1.write('ts1.xyz')
     if len(args.methods) == 2:
-        print ' --== \x1b[1;92mUpgrading\x1b[0m ==--'
+        print(' --== \x1b[1;92mUpgrading\x1b[0m ==--')
         QCTS2 = QChemTS("ts1.xyz", charge=args.charge, mult=args.mult, method=args.methods[1], 
                         basis=args.bases[1], finalize=True, qcin='qcts2.in', vout='irc_transition.vib')
         QCTS2.write('ts2.xyz')
@@ -65,7 +65,7 @@ def main():
         qcdir = QCTS1.qcdir
         shutil.copy2('ts1.xyz', 'ts.xyz')
     # Intrinsic reaction coordinate calculation.
-    print "Intrinsic reaction coordinate.."
+    print("Intrinsic reaction coordinate..")
     # Process and save IRC results.
     M_IRC, E_IRC = QChemIRC("ts.xyz", charge=args.charge, mult=args.mult, method=args.methods[-1], basis=args.bases[-1], qcdir=qcdir, xyz0=args.initpath)
     M_IRC.write("irc.xyz")
@@ -186,7 +186,7 @@ def main():
         nrgfile.write("=> Product state could not be identified among fragment calculations\n")
         nrgfile.write("=> No reaction energies referenced to isolated molecules will be calculated for this pathway\n")
     nrgfile.close()
-    print "\x1b[1;92mIRC Success!\x1b[0m"
+    print("\x1b[1;92mIRC Success!\x1b[0m")
     tarexit()
 
 if __name__ == "__main__":

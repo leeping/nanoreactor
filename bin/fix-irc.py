@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-
+from __future__ import print_function
 from nanoreactor.molecule import Molecule, arc
 from nanoreactor.qchem import erroks, SpaceIRC
 from nanoreactor.nifty import monotonic_decreasing, extract_tar, bak
@@ -47,7 +47,7 @@ while True:
     M_.align()
     rmsd = M_.ref_rmsd(0)
     if np.min(rmsd[1:]) < 1e-10:
-        print qcout, "returned to the beginning"
+        print(qcout, "returned to the beginning")
         fret = np.argmin(rmsd[1:])+1
         # # We shouldn't trust the second segment.
         if M != None:
@@ -60,11 +60,11 @@ while True:
             else:
                 M = M_[::-1] + M
                 iTS = fret
-            print "Transition state is frame", iTS
+            print("Transition state is frame", iTS)
         else:
             M = M_[:fret][::-1] + M_[fret:]
             iTS = fret
-            print "Transition state is frame", iTS
+            print("Transition state is frame", iTS)
         began = True
     else:
         # print qcout, "did not return to the beginning"
@@ -76,19 +76,19 @@ while True:
                 RmsdFwd = JoinFwd.ref_rmsd(0)
                 JoinBak = M[0+shift] + M_
                 RmsdBak = JoinBak.ref_rmsd(0)
-                print shift, RmsdFwd[1], RmsdBak[1]
+                print(shift, RmsdFwd[1], RmsdBak[1])
                 if RmsdFwd[1] < 1e-4:
-                    print qcout, "will be joined onto the end"
+                    print(qcout, "will be joined onto the end")
                     if shift: M = M[:-shift]
                     M += M_
                     break
                 elif RmsdBak[1] < 1e-4:
-                    print qcout, "will be joined onto the front"
+                    print(qcout, "will be joined onto the front")
                     if shift: M = M[shift:]
                     M = M_[::-1] + M
                     iTS += len(M_)
                     iTS -= shift
-                    print "Transition state is frame", iTS
+                    print("Transition state is frame", iTS)
                     break
                 shift += 1
                 if shift >= 10:
@@ -105,7 +105,7 @@ def GetRMSD(m0, m1):
 S = Molecule('irc.xyz', ftype='xyz')
 RMSD1 = GetRMSD(S[0], M[0]) + GetRMSD(S[-1], M[-1])
 RMSD2 = GetRMSD(S[0], M[-1]) + GetRMSD(S[-1], M[0])
-print "IRC RMSD to initial path endpoints (fwd, bkwd) = %6.3f %6.3f" % (RMSD1, RMSD2)
+print("IRC RMSD to initial path endpoints (fwd, bkwd) = %6.3f %6.3f" % (RMSD1, RMSD2))
 fwd = (RMSD1 < RMSD2)
 if not fwd: 
     M = M[::-1]
@@ -133,10 +133,10 @@ np.savetxt("irc.nrg", np.hstack((ArcMolCumul.reshape(-1, 1), E.reshape(-1,1))), 
 MOld = Molecule("irc.xyz")
 ArcOld = arc(MOld, RMSD=True)
 if len(M) > len(MOld):
-    print "Repair was \x1b[1;92msuccessful\x1b[0m (RMSDMax: %.3f -> %.3f)" % (np.max(ArcOld), np.max(ArcMol))
+    print("Repair was \x1b[1;92msuccessful\x1b[0m (RMSDMax: %.3f -> %.3f)" % (np.max(ArcOld), np.max(ArcMol)))
     replace = True
 else:
-    print "Repair was unnecessary (RMSDMax: %.3f -> %.3f)" % (np.max(ArcOld), np.max(ArcMol))
+    print("Repair was unnecessary (RMSDMax: %.3f -> %.3f)" % (np.max(ArcOld), np.max(ArcMol)))
     replace = False
     
 M.align_center()
@@ -151,7 +151,7 @@ if replace: os.system('tar cjf %s * --remove-files' % fnm)
 os.chdir('..')
 
 if replace: 
-    print "Replacing results with fixed version."
+    print("Replacing results with fixed version.")
     bak(fnm)
     shutil.move('fix-TS/'+fnm, fnm)
     extract_tar(fnm, ['irc.nrg', 'irc.pop', 'irc.xyz', 'irc_spaced.xyz'], force=True)

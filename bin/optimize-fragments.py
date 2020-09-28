@@ -4,8 +4,8 @@
 Run a Q-Chem geometry optimization.  Save frames where the energy is
 monotonically decreasing and save charges / spins to disk.
 """
-
-from nanoreactor import contact
+from __future__ import print_function
+#from nanoreactor import contact
 from nanoreactor.nanoreactor import commadash
 from nanoreactor.qchem import QChem, tarexit
 from nanoreactor.molecule import *
@@ -88,13 +88,13 @@ def QCOptIC(*args, **kwargs):
     """
     OptOut = QCOpt(*args, cart=False, **kwargs)
     if OptOut.qcerr == 'OPTIMIZE fatal error':
-        print "Internal cartesian coordinates failed - trying Cartesian"
+        print("Internal cartesian coordinates failed - trying Cartesian")
         OptOut = QCOpt(*args, cart=True, **kwargs)
     # Return success on maximum cycles reached.
     if len(OptOut.qcerr) == 0 or OptOut.qcerr == 'Maximum optimization cycles reached':
         return OptOut
     else:
-        print "Geometry optimization failed! (%s)" % OptOut.qcerr
+        print("Geometry optimization failed! (%s)" % OptOut.qcerr)
         tarexit()
 
 def main():
@@ -136,7 +136,7 @@ def main():
         efstart = re.search('(?<=Molecular formula )\w+', M.comms[0]).group(0)
         subefstart.append(efstart)
 
-    print "Running individual optimizations."
+    print("Running individual optimizations.")
     # Run individual geometry optimizations.
     FragE = 0.0
     FragZPE = 0.0
@@ -169,21 +169,21 @@ def main():
         M.build_topology(force_bonds=True)
         optformula = ' '.join([m.ef() for m in M.molecules])
         subeffinal.append(optformula)
-        print ("%s.opt.xyz : formula %s; charge %i; mult %i; energy %f Ha;"
+        print(("%s.opt.xyz : formula %s; charge %i; mult %i; energy %f Ha;"
                "ZPE %f kcal/mol; entropy %f cal/mol.K; enthalpy %f kcal/mol" 
                % (os.path.splitext(subxyz[i])[0], optformula, subchg[i], submult[i], M.qm_energies[0], M.qm_zpe[0], 
-                  M.qm_entropy[0], M.qm_enthalpy[0]))
+                  M.qm_entropy[0], M.qm_enthalpy[0])))
         FragE += M.qm_energies[0]
         FragZPE += M.qm_zpe[0]
         FragEntr += M.qm_entropy[0]
         FragEnth += M.qm_enthalpy[0]
         SumFrags.append(M[0])
     for fragment in SumFrags : fragment.write('fragmentopt.xyz', append=True)
-    if subefstart != subeffinal: print "Fragments changed during optimization, calculation invalid" 
-    print "Final electronic energy (Ha) of optimized frags: % 18.10f" % FragE
-    print "Final ZPE (kcal/mol) of optimized frags: % 18.10f" % FragZPE
-    print "Final entropy (cal/mol.K) of optimized frags: % 18.10f" % FragEntr
-    print "Final enthalpy (kcal/mol) of optimized frags: % 18.10f" % FragEnth
+    if subefstart != subeffinal: print("Fragments changed during optimization, calculation invalid") 
+    print("Final electronic energy (Ha) of optimized frags: % 18.10f" % FragE)
+    print("Final ZPE (kcal/mol) of optimized frags: % 18.10f" % FragZPE)
+    print("Final entropy (cal/mol.K) of optimized frags: % 18.10f" % FragEntr)
+    print("Final enthalpy (kcal/mol) of optimized frags: % 18.10f" % FragEnth)
     nrg = open('fragmentopt.nrg', 'w')
     for subef in subeffinal : nrg.write(subef + " ")
     nrg.write("\nTotal electronic energy: %f Ha\n" % FragE)
