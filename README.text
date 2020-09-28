@@ -1,5 +1,5 @@
 #Nanoreactor package
-#### Authors: Lee-Ping Wang, Robert McGibbon, Leah Isseroff Bendavid, Alexey Titov, Todd J. Martinez
+#### Authors: Lee-Ping Wang, Heejune Park, Robert McGibbon, Leah Isseroff Bendavid, Alexey Titov, Todd J. Martinez
 
 This is a script and library to analyze reactive MD (nanoreactor)
 simulations.  It provides two main capabilities:
@@ -40,7 +40,7 @@ are forthcoming.
 
 #### Dependencies (there are many, though I tried to keep the # down): 
 
-- Python 2.7, and the Python packages numpy, scipy and networkx.  The
+- Python 2.7, 3.5 or above, and the Python packages numpy, scipy and networkx.  The
 sklearn package is recommended but not required.  These dependencies
 are satisfied if you get the Python distribution from Enthought Canopy
 or (I think) Anaconda.  Note that future versions of sklearn (0.17) 
