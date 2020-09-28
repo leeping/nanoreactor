@@ -40,7 +40,7 @@ Dependencies (there are many):
   for editing vector graphics, but it may look different when viewed
   on different machines.
 """
-
+from __future__ import print_function
 from collections import Counter, defaultdict
 import pybel
 import numpy as np
@@ -122,8 +122,8 @@ unicode_superscripts = {'0': 8304, '1': 185,  '2': 178,
                       '6': 8310, '7': 8311, '8': 8312,
                       '9': 8313, '+': 8314 , '-': 8315}
 
-subscript_entities = dict([(i, "&#%i;" % j) for i, j in unicode_subscripts.items()])
-superscript_entities = dict([(i, "&#%i;" % j) for i, j in unicode_superscripts.items()])
+subscript_entities = dict([(i, "&#%i;" % j) for i, j in list(unicode_subscripts.items())])
+superscript_entities = dict([(i, "&#%i;" % j) for i, j in list(unicode_superscripts.items())])
 
 def svg_subs(string):
     """ Given a molecular formula like C2H5, replace the numbers with the subscript entities. """
@@ -145,9 +145,9 @@ def subscripts(string):
     using this before when I used ImageMagick to create the images, no
     longer used.
     """
-    ustr = unicode(string)
+    ustr = str(string)
     for i in unicode_subscripts:
-        ustr = ustr.replace(i, unichr(unicode_subscripts[i]))
+        ustr = ustr.replace(i, chr(unicode_subscripts[i]))
     return ustr
 
 def superscripts(string):
@@ -156,9 +156,9 @@ def superscripts(string):
     using this before when I used ImageMagick to create the images, no
     longer used.
     """
-    ustr = unicode(string)
+    ustr = str(string)
     for i in unicode_superscripts:
-        ustr = ustr.replace(i, unichr(unicode_superscripts[i]))
+        ustr = ustr.replace(i, chr(unicode_superscripts[i]))
     return ustr
 
 # Print a narrow image strip with fixed-width text.
@@ -299,7 +299,7 @@ def make_obmol(M, prefix):
     spn = round_array(M.qm_mulliken_spins[0])
     sgn = lambda x: 1  if x>=0 else -1
     # Create the Pybel Molecule object (which contains an OBMol object)
-    pbm = pybel.readfile("xyz", ".coords.xyz").next()
+    pbm = next(pybel.readfile("xyz", ".coords.xyz"))
     # Clear all coordinates so we'll force OpenBabel to redraw them
     for i, a in enumerate(pbm.atoms):
         a.OBAtom.ClearCoordPtr()
@@ -368,7 +368,7 @@ def make_obmol(M, prefix):
     pbm.write("svg", svgout, opt={"P":300, "a":True}, overwrite=True)
     fix_svg(svgout)
     # Return a string containing this side of the chemical equation.
-    return pbm.title, ' + '.join(['%s%s' % (str(j) if j>1 else '', i) for i, j in Counter(mofos).items()])
+    return pbm.title, ' + '.join(['%s%s' % (str(j) if j>1 else '', i) for i, j in list(Counter(mofos).items())])
 
 def compose(fwd=False):
     """ Compose the final image by putting the individual SVG images together. """
@@ -464,7 +464,7 @@ def main():
         fwd = False
     if fwd: 
         shutil.copy2("irc.nrg", "plot.nrg")
-        with open("reaction.can", "w") as f: print >> f, "%s>>%s" % (canr, canp)
+        with open("reaction.can", "w") as f: print("%s>>%s" % (canr, canp), file=f)
     else:
         ArcE = ArcE[::-1]
         ArcE[:, 0] *= -1
@@ -473,26 +473,26 @@ def main():
         np.savetxt("plot.nrg", ArcE, fmt="% 14.6f", header="Arclength(Ang) Energy(kcal/mol)")
         strr, strp = strp, strr
         E = E[::-1]
-        with open("reaction.can", "w") as f: print >> f, "%s>>%s" % (canp, canr)
+        with open("reaction.can", "w") as f: print("%s>>%s" % (canp, canr), file=f)
     # This string looks something like C2H2 + H2O -> C2H4O.  
     # The funny character is a Unicode entity for the "right arrow"
     strrxn = strr + ' &#10230; ' + strp
     # Create the components of the final image.
     # First write a text box with the chemical equation.
-    with open("reaction_text.svg", "w") as f: print >> f, svgrect.format(text=strrxn, frgb="255,210,80", srgb="255,165,128")
+    with open("reaction_text.svg", "w") as f: print(svgrect.format(text=strrxn, frgb="255,210,80", srgb="255,165,128"), file=f)
     # Next write a text box with the charge and multiplicity.
     net_charge = int(round(sum(M.qm_mulliken_charges[0])))
     net_mult = int(abs(round(sum(M.qm_mulliken_spins[0])))+1)
-    with open("chargemult_text.svg", "w") as f: print >> f, svgrect.format(text="Charge = %i ; Multiplicity = %i" % (net_charge, net_mult), frgb="194,225,132", srgb="154,205,50")
+    with open("chargemult_text.svg", "w") as f: print(svgrect.format(text="Charge = %i ; Multiplicity = %i" % (net_charge, net_mult), frgb="194,225,132", srgb="154,205,50"), file=f)
     # Write a text box with the reaction energy and barrier height.
-    with open("energy_text.svg", "w") as f: print >> f, svgrect.format(text="&#916;E = %.2f kcal ; E&#8336; = %.2f kcal" % (E[-1]-E[0], np.max(E)), frgb="142,200,255", srgb="30,144,255")
+    with open("energy_text.svg", "w") as f: print(svgrect.format(text="&#916;E = %.2f kcal ; E&#8336; = %.2f kcal" % (E[-1]-E[0], np.max(E)), frgb="142,200,255", srgb="30,144,255"), file=f)
     # Run script to generate energy diagram plot (uses Gnuplot).
     _exec("plot-rc.sh", print_command=False)
     # Write a text heading with the location of the calculation on disk.
-    with open("folder_text.svg", "w") as f: print >> f, svgtext.format(text="Path: %s" % os.getcwd().split(os.environ['HOME'])[-1].split("Refinement")[-1].strip('/'))
+    with open("folder_text.svg", "w") as f: print(svgtext.format(text="Path: %s" % os.getcwd().split(os.environ['HOME'])[-1].split("Refinement")[-1].strip('/')), file=f)
     # Print some skeleton SVG files (actually part of this script).
-    with open("arrow.svg", "w") as f: print >> f, svgarrow
-    with open("base.svg", "w") as f: print >> f, svgbase
+    with open("arrow.svg", "w") as f: print(svgarrow, file=f)
+    with open("base.svg", "w") as f: print(svgbase, file=f)
     # Finally, compose the image.
     compose(fwd)
 

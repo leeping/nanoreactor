@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-
+from __future__ import print_function
 import warnings
 warnings.simplefilter("ignore")
 from nanoreactor import contact
@@ -41,7 +41,7 @@ end
 # Determine the charge and spin from the xyz comment line.
 
 M = Molecule(sys.argv[1])
-print M.comms[0].split("atoms")[0]
+print(M.comms[0].split("atoms")[0])
 
 # Read in the charge and spin on the whole system.
 srch  = lambda s : np.array([float(re.search('(?<=%s )[-+]?[0-9]*\.?[0-9]*([eEdD][-+]?[0-9]+)?' % s, c).group(0)) for c in M.comms])
@@ -61,10 +61,10 @@ def extract_int(arr, avgthre, limthre, label="value", verbose=True):
     rounded = round(average)
     passed = True
     if abs(average - rounded) > avgthre:
-        if verbose: print "Average %s (%f) deviates from integer %s (%i) by more than threshold of %f" % (label, average, label, rounded, avgthre)
+        if verbose: print("Average %s (%f) deviates from integer %s (%i) by more than threshold of %f" % (label, average, label, rounded, avgthre))
         passed = False                                                                                        
     if abs(maximum - minimum) > limthre:
-        if verbose: print "Maximum %s fluctuation (%f) is larger than threshold of %f" % (label, abs(maximum-minimum), limthre)
+        if verbose: print("Maximum %s fluctuation (%f) is larger than threshold of %f" % (label, abs(maximum-minimum), limthre))
         passed = False
     return int(rounded), passed
 
@@ -76,7 +76,7 @@ nproton = sum([Elements.index(i) for i in M.elem])
 nelectron = nproton + chg
 
 if not spnpass:
-    print "Going with the minimum spin consistent with charge."
+    print("Going with the minimum spin consistent with charge.")
     if nelectron%2 == 0:
         spn = 0
     else:
@@ -84,15 +84,15 @@ if not spnpass:
 
 # The number of electrons should be odd iff the spin is odd.
 if ((nelectron-spn)/2)*2 != (nelectron-spn):
-    print "\x1b[91mThe number of electrons (%i) is inconsistent with the spin-z (%i)\x1b[0m" % (nelectron, spn)
-    print "Exiting."
+    print("\x1b[91mThe number of electrons (%i) is inconsistent with the spin-z (%i)\x1b[0m" % (nelectron, spn))
+    print("Exiting.")
     sys.exit()
 
-print "Number of electrons:", nelectron
-print "Net charge:", chg
-print "Net spin:", spn
+print("Number of electrons:", nelectron)
+print("Net charge:", chg)
+print("Net spin:", spn)
 
-with open("neb.in",'w') as f: print >> f, tcin.format(chg=str(chg), spn=str(spn+1))
+with open("neb.in",'w') as f: print(tcin.format(chg=str(chg), spn=str(spn+1)), file=f)
 
 _exec("int neb.in", print_command=True, print_to_screen=True, persist=True)
 _exec("mv neb.log neb.log1")

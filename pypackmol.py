@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+from __future__ import print_function
 """
 PyPackmol is a Python wrapper for packmol program that provide simple packing of molecules. 
 Note that packmol needs to be installed separately.  
@@ -85,7 +86,7 @@ def convert_to_xyz(input_data,input_format="auto",force_field="uff") :
             mol=pb.readstring(input_format,input_data)
             mol.make3D(forcefield=force_field,steps=200)
         else :
-            mol=pb.readfile(input_format,input_data).next()
+            mol=next(pb.readfile(input_format,input_data))
         output_file.write(mol.write("xyz"))
     
     output_file.flush()
@@ -133,7 +134,7 @@ class Packmol (object):
         """Update packmol option values.  
         
         Use keyword list to change the value of packmol options."""
-        for key,value in kwargs.items():
+        for key,value in list(kwargs.items()):
             self._options[key] = value
 
             
@@ -156,7 +157,7 @@ class Packmol (object):
         inp_file.write("seed {}\n".format(hash(ranseed)%10**9))
         
         # Write down other arguments 
-        for key,value in self._options.items():
+        for key,value in list(self._options.items()):
             if key not in Packmol.NONPACKMOL_OPTIONS:
                 inp_file.write("{0} {1}\n".format(key,value))
         # 
@@ -168,7 +169,7 @@ class Packmol (object):
                     "  inside sphere 0.0 0.0 0.0 {}\n".format(self._options["dimension"]))
             elif self._options["region_type"] :
                 raise NotImplementedError("Currently only sphere regions are supported.")
-            for key,value in mol_type["options"].items():
+            for key,value in list(mol_type["options"].items()):
                 inp_file.write("  {0} {1}\n".format(key,value))
             inp_file.write("end structure\n")
         inp_file.flush()
@@ -236,7 +237,7 @@ class Packmol (object):
                            "Best result found in [{}]").format(self._options["output"]))
         self._last_result={"filename":self._options["output"],"packmol output":self._output_stash}
         if _has_openbabel :
-            self._packed = pb.readfile("xyz",self._options["output"]).next()
+            self._packed = next(pb.readfile("xyz",self._options["output"]))
             ff=pb._forcefields[self._options['opt_force_field']]
             ff.Setup(self._packed.OBMol)
             self._last_result["energy"]=ff.Energy()
@@ -262,11 +263,11 @@ class Packmol (object):
             The minimum radius that the system can be packed."""
         for r in np.arange(min_radius,max_radius,increment):
             self.set_options(dimension=r)
-            if report : print "\rTesting packing with radius {}".format(r),
+            if report : print("\rTesting packing with radius {}".format(r), end=' ')
             try :
                 result=self.pack()
                 #packing successful!
-                if report : print "\rPacking successful with radius {}".format(r)
+                if report : print("\rPacking successful with radius {}".format(r))
                 return r
             except FailToPack:
                 pass

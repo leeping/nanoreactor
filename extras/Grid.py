@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-
+from __future__ import print_function
 import warnings
 # Suppress warnings from Molecule class.
 warnings.simplefilter("ignore")
@@ -88,9 +88,9 @@ def FixMol2_Grp(fnm,elem):
     return Out
 
 grid=int(len(sys.argv[1:])**0.5)+1
-displaces = [np.array(i) for i in list(itertools.product(range(grid),range(grid),[0]))]
+displaces = [np.array(i) for i in list(itertools.product(list(range(grid)),list(range(grid)),[0]))]
 molnum = 0
-space = float(raw_input("Enter grid spacing (try 8 angstroms) >> "))
+space = float(input("Enter grid spacing (try 8 angstroms) >> "))
 fouts = sys.argv[1:]
 
 # extents = []
@@ -128,7 +128,7 @@ def make_grid():
             os.system('babel -ixyz temp0.xyz -omol2 temp0.mol2 &> /dev/null')
             o = open('temp1.mol2','w')
             for line in FixMol2('temp0.mol2',Grid.elem):
-                print >> o, line
+                print(line, file=o)
             o.close()
             os.system('mv temp1.mol2 temp0.mol2')
         else:
@@ -149,28 +149,28 @@ def make_grid():
             os.system('sed -i s/LIG1/LIG%i/g temp1.mol2' % (molnum+1))
             o = open('temp2.mol2','w')
             for line in FixMol2('temp1.mol2',New.elem):
-                print >> o, line
+                print(line, file=o)
             o.close()
             Grid.xyzs[0] = np.vstack((Grid.xyzs[0],New.xyzs[0]))
             Grid.elem = Grid.elem + New.elem
             os.system('babel -imol2 temp0.mol2 -imol2 temp2.mol2 -omol2 join.mol2 --join &> /dev/null')
             o = open('temp0.mol2','w')
             for line in FixMol2_Grp('join.mol2',Grid.elem):
-                print >> o, line
+                print(line, file=o)
             o.close()
         Grid.comms = ['Reaction product grid']
         molnum += 1
 
-    print "Writing output to grid.xyz and grid.mol2"
-    print "To visualize in PyMol, open the .mol 2 file and then type into the terminal (without >):"
-    print "PyMOL> hide"
-    print "PyMOL> as lines"
-    print "PyMOL> set valence, 0.1"
-    print "PyMOL> set_bond stick_radius, 0.15, all"
+    print("Writing output to grid.xyz and grid.mol2")
+    print("To visualize in PyMol, open the .mol 2 file and then type into the terminal (without >):")
+    print("PyMOL> hide")
+    print("PyMOL> as lines")
+    print("PyMOL> set valence, 0.1")
+    print("PyMOL> set_bond stick_radius, 0.15, all")
     Grid.write("grid.xyz")
     os.system('mv temp0.mol2 grid.mol2')
     os.system('rm temp*.mol2 join.mol2')
     return min([mindist(t[0],t[1]) for t in list(itertools.combinations(x_by_mol,2))])
 
 smin = make_grid()
-print "Detected minimum %.1f spacing between molecules.  Feel free to rerun and adjust spacing accordingly." % smin
+print("Detected minimum %.1f spacing between molecules.  Feel free to rerun and adjust spacing accordingly." % smin)

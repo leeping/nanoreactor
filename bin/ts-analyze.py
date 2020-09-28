@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-ts-bondorder.py
+ts-analyze.py
 
 Calculate the Mayer bond order matrix and vibrational frequencies for
 a transition state.  This is intended to provide some more transition

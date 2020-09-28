@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-
+from __future__ import print_function
 import os, sys, shutil, re
 import glob
 import nanoreactor
@@ -32,11 +32,11 @@ def print_stat(calctype, action, dnm, msg="", ansi="\x1b[93m"):
     elif action == 'ready':
         ansi = "\x1b[96m"
     spaces = max(0, (14 - len(action)))
-    print "%-15s %s%s\x1b[0m%s in %-60s" % (calctype, ansi, action, ' '*spaces, dnm),
+    print("%-15s %s%s\x1b[0m%s in %-60s" % (calctype, ansi, action, ' '*spaces, dnm), end=' ')
     if msg != "":
-        print msg
+        print(msg)
     else:
-        print
+        print()
 
 # Touch a file.
 def touch(fname, times=None):
@@ -145,7 +145,7 @@ if args.qa or args.qg or args.qt or args.qf:
     wq = work_queue.WorkQueue(port=args.p, exclusive=False, shutdown=False)
     wq.specify_keepalive_interval(8640000)
     wq.specify_name('nanoreactor')
-    print('Work Queue named %s listening on %d' % (wq.name, wq.port))
+    print(('Work Queue named %s listening on %d' % (wq.name, wq.port)))
     RUN = True
 
 def getN(xyz, frm):
@@ -182,7 +182,7 @@ def chkstr(sxyz, chgspn=False):
         dx = 0.01 # We want a 0.01 Angstrom separation between points.
         npts = int(max(ArcMolCumul)/dx)
         if npts == 0: 
-            print "\x1b[91mIRC generated a zero-length path\x1b[0m"
+            print("\x1b[91mIRC generated a zero-length path\x1b[0m")
             return None
         ArcMolEqual = np.linspace(0, max(ArcMolCumul), npts)
         xyzold = np.array(SMol.xyzs)
@@ -196,17 +196,17 @@ def chkstr(sxyz, chgspn=False):
         SMol.xyzs = list(xyznew)
         SMol.write(vxyz)
     T = Nanoreactor(vxyz, enhance=1.2, printlvl=-1, boring=[], delay=0, learntime=0, rxntime=10, metastability=1.0, pcorrectemit=0.0)
-    RIso0 = [i['graph'] for i in T.TimeSeries.values() if i['signal'][0][1]]
-    PIso0 = [i['graph'] for i in T.TimeSeries.values() if i['signal'][-1][1]]
-    RIso1 = [(i['graph'], tuple(i['graph'].L())) for i in T.TimeSeries.values() if i['signal'][0][1]]
-    PIso1 = [(i['graph'], tuple(i['graph'].L())) for i in T.TimeSeries.values() if i['signal'][-1][1]]
+    RIso0 = [i['graph'] for i in list(T.TimeSeries.values()) if i['signal'][0][1]]
+    PIso0 = [i['graph'] for i in list(T.TimeSeries.values()) if i['signal'][-1][1]]
+    RIso1 = [(i['graph'], tuple(i['graph'].L())) for i in list(T.TimeSeries.values()) if i['signal'][0][1]]
+    PIso1 = [(i['graph'], tuple(i['graph'].L())) for i in list(T.TimeSeries.values()) if i['signal'][-1][1]]
     NoReact = set(RIso1) == set(PIso1)
     Rearr = set(RIso0) == set(PIso0)
     ostr = ""
-    ostr += ', '.join(["%s (%s)" % (i['graph'].ef(), commadash(i['graph'].L())) for i in T.TimeSeries.values() if i['signal'][0][1]])
+    ostr += ', '.join(["%s (%s)" % (i['graph'].ef(), commadash(i['graph'].L())) for i in list(T.TimeSeries.values()) if i['signal'][0][1]])
     ostr += " -> "
-    ostr += ', '.join(["%s (%s)" % (i['graph'].ef(), commadash(i['graph'].L())) for i in T.TimeSeries.values() if i['signal'][-1][1]])
-    print "%-60s" % ostr, "  \x1b[95mE_rxn, E_a (kcal/mol) = % 8.3f % 8.3f\x1b[0m" % (E[-1] - E[0], max(E))
+    ostr += ', '.join(["%s (%s)" % (i['graph'].ef(), commadash(i['graph'].L())) for i in list(T.TimeSeries.values()) if i['signal'][-1][1]])
+    print("%-60s" % ostr, "  \x1b[95mE_rxn, E_a (kcal/mol) = % 8.3f % 8.3f\x1b[0m" % (E[-1] - E[0], max(E)))
     if NoReact:
         chkstr.noreact = 1
         return None
@@ -214,7 +214,7 @@ def chkstr(sxyz, chgspn=False):
         chkstr.rearrange = 1
         return None
 
-    satoms = itertools.chain(*[i['graph'].L() for i in T.TimeSeries.values() if i['signal'][-1][1] and i['signal'][0][1]])
+    satoms = itertools.chain(*[i['graph'].L() for i in list(T.TimeSeries.values()) if i['signal'][-1][1] and i['signal'][0][1]])
     ratoms = sorted(list(set(range(T.na)) - set(satoms)))
     RP = T.atom_select(ratoms)[0] + T.atom_select(ratoms)[-1]
     RP.align()
@@ -413,7 +413,7 @@ def manage_an(f, dnm):
                 os.makedirs(dnm)
             shutil.copy2(f, os.path.join(dnm, fn))
             if anprint: print_stat(calctype, "Launch", dnm)
-            with open(os.path.join(dnm,'.runpid'),'w') as f: print >> f, os.getpid()
+            with open(os.path.join(dnm,'.runpid'),'w') as f: print(os.getpid(), file=f)
             tag = fn+'___'+dnm
             queue_up_src_dest(wq,"python AnalyzeReaction.py %s.xyz b3lyp 6-31g* > %s.log 2> %s.err" % (rxnm, rxnm, rxnm),
                               input_files=[(os.path.join(scriptd,"AnalyzeReaction.py"), "AnalyzeReaction.py"),
@@ -549,8 +549,8 @@ def manage_gs(d0, init):
                     status = 'Failed'
                     errmsg = 'Zero-size archive file'
             if status == 'Converged' and pgrad > cvg_grad:
-                print "Puzzle in %s (converged but gradient %f)" % (dgs, pgrad)
-                raw_input()
+                print("Puzzle in %s (converged but gradient %f)" % (dgs, pgrad))
+                input()
             if status == 'Unknown':
                 if pgrad <= cvg_grad:
                     status = 'Converged'
@@ -586,7 +586,7 @@ def manage_gs(d0, init):
             if gsprint: print_stat(calctype, "failed", dgs, msg="(%i iterations; %s)" % (niter, errmsg))
             if errmsg in ['Stability analysis failure', 'Syntax error']:
                 if errmsg == 'Stability analysis failure' : do_stable = False
-                if gsprint: print "\x1b[96m--== Will resubmit ==--\x1b[0m"
+                if gsprint: print("\x1b[96m--== Will resubmit ==--\x1b[0m")
                 for f in ['gs.log', 'gs_result.tar.bz2']:
                     absf = os.path.join(dgs, f)
                     movef(absf, absf+".bak")
@@ -626,7 +626,7 @@ def manage_gs(d0, init):
                 os.makedirs(dgs)
             shutil.copy2(lstr, os.path.join(dgs, "initial.xyz"))
             print_stat(calctype, "Launch", dgs)
-            with open(os.path.join(dgs,'.runpid'),'w') as f: print >> f, os.getpid()
+            with open(os.path.join(dgs,'.runpid'),'w') as f: print(os.getpid(), file=f)
             tag = d0+'___'+init
             queue_up_src_dest(wq, "python growing-string.py %s initial.xyz b3lyp 6-31g* > gs.log 2> gs.err" % ('-stab' if do_stable else ''),
                               input_files=[(os.path.join(scriptd,"growing-string.py"),"growing-string.py"),
@@ -682,13 +682,13 @@ def manage_ts(dts, init, lstr, Launch):
         # Temporarily doesn't work for growing string.
         if string: return 0
         if write_result.first:
-            print
+            print()
             write_result.first = 0
         if string:
-            print "\x1b[1;95m GS:  \x1b[0m",
+            print("\x1b[1;95m GS:  \x1b[0m", end=' ')
             chgspn = False
         else:
-            print "\x1b[1;97m IRC: \x1b[0m",
+            print("\x1b[1;97m IRC: \x1b[0m", end=' ')
             chgspn = True
         res = chkstr(xyz, chgspn)
         if res != None:
@@ -701,7 +701,7 @@ def manage_ts(dts, init, lstr, Launch):
             if (string and args.pic >= 2) or (not string and args.pic >= 1):
                 subprocess.call("xyzob.py %s %s %s %s %.3f %.3f %s" % ("reactants.xyz", "products.xyz", "chgsel.irc.txt", "spnsel.irc.txt", 
                                                                        delta, barrier, "1" if string else ""), shell=True)
-                print "\x1b[92mReaction saved\x1b[0m to %s/reaction.png%s" % (dts, " (warning: TS from string)" if string else "")
+                print("\x1b[92mReaction saved\x1b[0m to %s/reaction.png%s" % (dts, " (warning: TS from string)" if string else ""))
             os.chdir(cwd)
             if string: touch("%s/TS_From_String" % dts)
             else: rmf("%s/TS_From_String" % dts)
@@ -767,9 +767,9 @@ def manage_ts(dts, init, lstr, Launch):
                 for line in os.popen("grep -i 'error\|failure' %s | grep -v '===='" % tslog).readlines():
                     errs.append(line.replace('\n',''))
             if len(errs) > 0:
-                print "--- Errors: ---"
-                for line in errs: print line
-                print "--- End Errors ---"
+                print("--- Errors: ---")
+                for line in errs: print(line)
+                print("--- End Errors ---")
             write_result(gsxyz, string=True)
         else:
             write_result(gsxyz, string=True)
@@ -817,7 +817,7 @@ def manage_ts(dts, init, lstr, Launch):
                 M1.write(os.path.join(dts,'string.xyz'))
                 tse.write(os.path.join(dts,"tsest.xyz"))
                 print_stat(calctype, "Launch", dts)
-                with open(os.path.join(dts,'.runpid'),'w') as f: print >> f, os.getpid()
+                with open(os.path.join(dts,'.runpid'),'w') as f: print(os.getpid(), file=f)
                 queue_up_src_dest(wq,"python transition-state.py tsest.xyz string.xyz &> ts.log",
                                   input_files=[(os.path.join(scriptd, "transition-state.py"),"transition-state.py"),
                                                ("%s/tsest.xyz" % dts,"tsest.xyz"),
@@ -901,9 +901,9 @@ def manage_fs(d0, init):
         """ Write results from an IRC XYZ file to a .png image. """
         # Temporarily doesn't work for growing string.
         if write_result.first:
-            print
+            print()
             write_result.first = 0
-        print "\x1b[1;97m IRC: \x1b[0m",
+        print("\x1b[1;97m IRC: \x1b[0m", end=' ')
         chgspn = True
         res = chkstr(xyz, chgspn)
         if res != None:
@@ -916,7 +916,7 @@ def manage_fs(d0, init):
             if args.pic >= 1:
                 subprocess.call("xyzob.py %s %s %s %s %.3f %.3f" % ("reactants.xyz", "products.xyz", "chgsel.irc.txt", "spnsel.irc.txt", 
                                                                        delta, barrier), shell=True)
-                print "\x1b[92mReaction saved\x1b[0m to %s/reaction.png" % (dfs)
+                print("\x1b[92mReaction saved\x1b[0m to %s/reaction.png" % (dfs))
             os.chdir(cwd)
             return 1
         else:
@@ -957,9 +957,9 @@ def manage_fs(d0, init):
                 for line in os.popen("grep -i 'error\|failure' %s | grep -v '===='" % fslog).readlines():
                     errs.append(line.replace('\n',''))
             if len(errs) > 0:
-                print "--- Errors: ---"
-                for line in errs: print line
-                print "--- End Errors ---"
+                print("--- Errors: ---")
+                for line in errs: print(line)
+                print("--- End Errors ---")
         else:
             # if os.path.exists(ircxyz): make_monotonic(ircxyz)
             ircstat = write_result(ircxyz)
@@ -986,7 +986,7 @@ def manage_fs(d0, init):
         ixyz = os.path.split(init)[1]
         if args.qf:
             print_stat(calctype, "Launch", dfs)
-            with open(os.path.join(dfs,'.runpid'),'w') as f: print >> f, os.getpid()
+            with open(os.path.join(dfs,'.runpid'),'w') as f: print(os.getpid(), file=f)
             queue_up_src_dest(wq,"python freezing-string.py %s &> fs.log" % ixyz,
                               input_files=[(os.path.join(scriptd, "freezing-string.py"),"freezing-string.py"),
                                            (init, ixyz)],
@@ -1042,17 +1042,17 @@ def main():
             fn += 1
             if RUN and (fn%100 == 0): manage_wq(wq,wait_time=1)
         
-    print "%i molecular dynamics paths are being analyzed" % manage_an.n_an
-    print "%i growing string calculations" % manage_gs.tot_gs
-    print "%i transition states from growing string" % manage_ts.tot_ts
-    print "%i freezing string calculations" % manage_fs.tot_fs
+    print("%i molecular dynamics paths are being analyzed" % manage_an.n_an)
+    print("%i growing string calculations" % manage_gs.tot_gs)
+    print("%i transition states from growing string" % manage_ts.tot_ts)
+    print("%i freezing string calculations" % manage_fs.tot_fs)
     
     if RUN: 
         while True:
             manage_wq(wq,wait_time=5)
-        print "All jobs are finished!"
+        print("All jobs are finished!")
     else:
-        print "Dry run finished"
+        print("Dry run finished")
 
 if __name__ == "__main__":
     main()
