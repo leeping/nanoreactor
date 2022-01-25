@@ -262,11 +262,11 @@ class Packmol (object):
             The minimum radius that the system can be packed."""
         for r in np.arange(min_radius,max_radius,increment):
             self.set_options(dimension=r)
-            if report : print "\rTesting packing with radius {}".format(r),
+            if report : print ("\rTesting packing with radius {}".format(r))
             try :
                 result=self.pack()
                 #packing successful!
-                if report : print "\rPacking successful with radius {}".format(r)
+                if report : print ("\rPacking successful with radius {}".format(r))
                 return r
             except FailToPack:
                 pass

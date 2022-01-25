@@ -38,6 +38,7 @@ weave:  0.482 s
 This is only using two threads. If you have more cores on your machine, you can
 probably do even better.
 """
+from __future__ import print_function
 import numpy as np
 try:
     import scipy.weave
@@ -226,8 +227,8 @@ def _viterbi(signal, metastability, p_correct):
     
     # use dynamic programming to fill up the matrix V
     # http://en.wikipedia.org/wiki/Viterbi_algorithm
-    for t in xrange(1, n_frames):
-        for k in xrange(n_states):
+    for t in range(1, n_frames):
+        for k in range(n_states):
             
             # do everything in log space, so this product is actually a sum
             row_log_product = row_of_log_transition_matrix(k) + V[t-1, :];
@@ -246,7 +247,7 @@ def _viterbi(signal, metastability, p_correct):
     rectified[n_frames - 1] = np.argmax(V[n_frames-1, :])
     # iterate backward from te last entry towards the beginning
     # following the pointers
-    for t in xrange(n_frames - 2, -1, -1):
+    for t in range(n_frames - 2, -1, -1):
         rectified[t] = pointers[t + 1, rectified[t + 1]]
 
     return np.max(V[n_frames-1, :]), rectified
@@ -272,16 +273,16 @@ def viterbi_skl(signal, metastability, p_correct):
 if __name__ == '__main__':
     import time
     signal = np.random.randint(100, size=10000)
-    print signal
+    print(signal)
     
     t1 = time.time()
-    print 'c  ', viterbi(signal, metastability=0.99, p_correct=0.9)
+    print('c  ', viterbi(signal, metastability=0.99, p_correct=0.9))
     t2 = time.time()
-    print 'py ', _viterbi(signal, metastability=0.99, p_correct=0.9)
+    print('py ', _viterbi(signal, metastability=0.99, p_correct=0.9))
     t3 = time.time()
-    print 'skl', viterbi_skl(signal, metastability=0.99, p_correct=0.9)
+    print('skl', viterbi_skl(signal, metastability=0.99, p_correct=0.9))
     t4 = time.time()
     
-    print t4-t3, t3-t2, t2-t1
+    print(t4-t3, t3-t2, t2-t1)
     
                 

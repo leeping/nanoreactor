@@ -2,6 +2,7 @@
 Wrappers to C functions for computing the geometry at each frame of
 a trajectory
 '''
+from __future__ import print_function
 import numpy as np
 import _contact_wrap
 
@@ -29,7 +30,7 @@ def atom_distances(xyzlist, atom_contacts):
         raise ValueError("xyzlist must be an n x m x 3 array")
     try: 
         num_contacts, width = atom_contacts.shape
-        assert width is 2
+        assert width == 2
     except (AttributeError, ValueError, AssertionError):
         raise ValueError('contacts must be an n x 2 array')
         
@@ -80,7 +81,7 @@ def atom_displacements(xyzlist, atom_contacts):
         raise ValueError("xyzlist must be an n x m x 3 array")
     try: 
         num_contacts, width = atom_contacts.shape
-        assert width is 2
+        assert width == 2
     except (AttributeError, ValueError, AssertionError):
         raise ValueError('contacts must be an n x 2 array')
         
@@ -137,7 +138,7 @@ def residue_distances(xyzlist, residue_membership, residue_contacts):
         raise ValueError("xyzlist must be n x m x 3")
     try: 
         num_contacts, width = residue_contacts.shape
-        assert width is 2
+        assert width == 2
     except (AttributeError, ValueError, AssertionError):
         raise ValueError('residue_contacts must be an n x 2 array')
         
@@ -159,7 +160,7 @@ def residue_distances(xyzlist, residue_membership, residue_contacts):
     residue_widths = np.array([len(r) for r in residue_membership], dtype=np.int32)
     max_residue_width = max(residue_widths)
     residue_membership_array = -1 * np.ones((num_residues, max_residue_width), dtype=np.int32)
-    for i in xrange(num_residues):
+    for i in range(num_residues):
         residue_membership_array[i, 0:residue_widths[i]] = np.array(residue_membership[i], dtype=np.int32)
     
     results = np.zeros((traj_length, num_contacts), np.float64)
