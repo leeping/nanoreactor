@@ -23,6 +23,7 @@ def parse_user_input():
     parser.add_argument('--method', type=str, default='b3lyp', help='Which electronic structure method to use. ' )
     parser.add_argument('--basis', type=str, default='6-31g(d)', help='Which basis set to use. ')
     parser.add_argument('--fragpath', type=str, default=None, help='Path to fragment directory')    
+    parser.add_argument('--stepsize', type=int, default=150, help='IRC stepsize. Default 150 means 0.15 a.u.')
     args, sys.argv = parser.parse_known_args(sys.argv[1:])
     return args
 
@@ -41,7 +42,7 @@ def main():
     print("Intrinsic reaction coordinate..")
     qcdir = QCTS.qcdir
     # Process and save IRC results.
-    M_IRC, E_IRC = QChemIRC("ts.xyz", charge=args.charge, mult=args.mult, method=args.method, basis=args.basis, qcdir=qcdir, xyz0=args.initial)
+    M_IRC, E_IRC = QChemIRC("ts.xyz", charge=args.charge, mult=args.mult, stepsize=args.stepsize, method=args.method, basis=args.basis, qcdir=qcdir, xyz0=args.initial)
     M_IRC.write("irc.xyz")
     M_IRC.get_populations().write('irc.pop', ftype='xyz')
     # Save the IRC energy as a function of arc length.

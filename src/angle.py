@@ -59,7 +59,7 @@ def bond_angles(xyzlist, angle_indices):
         raise ValueError("xyzlist must be an n x m x 3 array")
     try: 
         n_angles, width = angle_indices.shape
-        assert width is 3
+        assert width == 3
     except (AttributeError, ValueError, AssertionError):
         raise ValueError('angle_indices must be an n x 3 array')
     

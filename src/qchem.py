@@ -879,7 +879,7 @@ class QChem(object):
         self.M.comms = [M1.comms[-1]]
         self.M.xyzs = [M1.xyzs[-1]]
 
-    def rpath(self, direction=1, tolerance=1000):
+    def rpath(self, direction=1, stepsize=150, tolerance=1000):
         """ 
         Q-Chem intrinsic reaction coordinate calculation. 
 
@@ -898,6 +898,8 @@ class QChem(object):
             LP's edited version of Q-Chem, because currently Q-Chem
             starts IRC in the same direction regardless of this rem
             variable.
+        stepsize : float
+            IRC stepsize. 
         tolerance : int, optional
             Set the IRC displacement tolerance.  Higher values will lead to
             faster convergence but occasionally give a result that converges
@@ -931,6 +933,7 @@ class QChem(object):
         # In any case, when IRC fails we "catch" it with a geometry optimization
         # and continue on to the minimum.
         self.remextra = OrderedDict([('rpath_direction', direction),
+                                     ('rpath_max_stepsize', stepsize),
                                      ('rpath_tol_displacement', tolerance),
                                      ('rpath_max_cycles', 50),
                                      ('geom_opt_max_cycles', 300)])
@@ -1162,7 +1165,7 @@ def ProcessIRC(IRCData, xyz0=None):
     M.align_center()
     return M, E
 
-def QChemIRC(xyz, charge, mult, method, basis, qcdir, qcin='qcirc.in', xyz0=None):
+def QChemIRC(xyz, charge, mult, method, stepsize, basis, qcdir, qcin='qcirc.in', xyz0=None):
     """
     Perform an intrinsic reaction coordinate calculation.  In case
     calculation doesn't work, ratchet up the tolerance until it does
@@ -1178,6 +1181,8 @@ def QChemIRC(xyz, charge, mult, method, basis, qcdir, qcin='qcirc.in', xyz0=None
         Spin multiplicity
     method : str
         Electronic structure method (e.g. b3lyp)
+    stepsize : float
+        Stepsize for IRC
     basis : str
         Gaussian basis set (e.g. 6-31g*)
     qcdir : str
@@ -1205,7 +1210,7 @@ def QChemIRC(xyz, charge, mult, method, basis, qcdir, qcin='qcirc.in', xyz0=None
         _exec("cp -r %s %s" % (qcdir, QCIRC.qcdir), print_command=False)
         QCIRC.haveH = 1
         # Run IRC calculation.
-        IRCOut = QCIRC.rpath(direction=1, tolerance=tol)
+        IRCOut = QCIRC.rpath(direction=1, stepsize=stepsize, tolerance=tol)
         msg = []
         msg.append("IRC calculation with displacement tolerance %i." % tol)
         # If IRC fails with something like "Bad initial gradient", then quit immediately.
