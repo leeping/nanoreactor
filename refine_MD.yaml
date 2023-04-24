@@ -1,0 +1,22 @@
+name: refine_MD
+channels:
+  - defaults
+  - conda-forge
+  - anaconda
+
+dependencies:
+  - python >= 3.5 
+  - pip
+  - numpy
+  - ndcctools
+
+  - pip:
+    - sklearn
+    - scipy 
+    - networkx
+    - matplotlib
+
+
+
+
+                

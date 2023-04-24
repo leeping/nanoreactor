@@ -1,4 +1,4 @@
-#Nanoreactor package
+# Nanoreactor package
 #### Authors: Lee-Ping Wang, Heejune Park, Robert McGibbon, Leah Isseroff Bendavid, Alexey Titov, Todd J. Martinez
 
 This is a script and library to analyze reactive MD (nanoreactor)
